@@ -85,21 +85,46 @@ export async function apiRequest<T>(
   const contentType = (res.headers.get('content-type') || '').toLowerCase();
   const isJson = contentType.includes('application/json');
 
-  // Static hosts like Netlify (e.g. jegamaschool1.netlify.app) return HTML (404 page or SPA index.html) for /api/*
+  // Static hosts (e.g. Netlify) return HTML (404 or SPA index.html) for /api/*
   if (!isJson && url.startsWith('/api/')) {
     staticLocalMode = true;
     return handleLocalApiRequest<T>(url, options, session);
   }
 
-  const data = isJson ? await res.json() : await res.text();
+  let data: unknown;
+  try {
+    data = isJson ? await res.json() : await res.text();
+  } catch {
+    // Empty or malformed JSON on a 404/405 static response -> fallback to local DB
+    if (url.startsWith('/api/')) {
+      staticLocalMode = true;
+      return handleLocalApiRequest<T>(url, options, session);
+    }
+    throw new Error(`Réponse serveur invalide (${res.status}).`);
+  }
+
+  const hasBackendErrorField =
+    typeof data === 'object' && data !== null && 'error' in data;
+
+  // If a proxy/static host returned a 404/405/501 JSON without our backend's { error } schema,
+  // no Express API is reachable -> switch seamlessly to persistent browser DB.
+  if (
+    !res.ok &&
+    url.startsWith('/api/') &&
+    (res.status === 404 || res.status === 405 || res.status === 501) &&
+    !hasBackendErrorField
+  ) {
+    staticLocalMode = true;
+    return handleLocalApiRequest<T>(url, options, session);
+  }
 
   if (!res.ok) {
-    const errMsg =
-      typeof data === 'object' && data && 'error' in data
-        ? String((data as { error: unknown }).error)
-        : `Erreur serveur (${res.status})`;
+    const errMsg = hasBackendErrorField
+      ? String((data as { error: unknown }).error)
+      : `Erreur serveur (${res.status})`;
     throw new Error(errMsg);
   }
+
   return data as T;
 }
 
