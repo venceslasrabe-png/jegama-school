@@ -1,0 +1,8 @@
+{
+  "name": "Jegama Scool",
+  "description": "Application web de gestion scolaire pour JEGAMA SCHOOL (Mpita-Wharf, Pointe-Noire) : inscriptions, caisse, cartes scolaires, notes, bulletins, pointage guérite et espace parents.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
