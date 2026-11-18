@@ -15,7 +15,7 @@ import {
   UserCog,
   X,
 } from 'lucide-react';
-import { apiRequest, type AppState, type SessionUser } from '../api';
+import { apiRequest, downloadBackupJson, type AppState, type SessionUser } from '../api';
 import type { AcademicYearArchive, ArchivedStudentRecord, UserRole } from '../types';
 import { downloadArchiveExcelTemplate, exportArchiveToExcel, parseArchiveExcelFile } from '../utils/excel';
 import { formatDateTimeFr, formatFcfa, ROLE_LABELS } from '../utils/format';
@@ -128,11 +128,8 @@ export const AdminView: React.FC<{
 
   const handleDownloadBackup = async () => {
     try {
-      const res = await fetch('/api/admin/backup', {
-        headers: { 'x-user-id': session.id, 'x-user-role': session.role },
-      });
-      if (!res.ok) throw new Error('Téléchargement impossible.');
-      const blob = await res.blob();
+      const data = await downloadBackupJson(session);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -145,6 +142,28 @@ export const AdminView: React.FC<{
       setFeedback({ type: 'ok', text: 'Sauvegarde complète téléchargée.' });
     } catch (err) {
       setFeedback({ type: 'err', text: err instanceof Error ? err.message : 'Erreur.' });
+    }
+  };
+
+  const handleRestoreBackup = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      await apiRequest('/api/admin/restore', { method: 'POST', body: JSON.stringify(parsed) }, session);
+      await onRefresh();
+      setFeedback({ type: 'ok', text: `Sauvegarde « ${file.name} » restaurée avec succès.` });
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Fichier de sauvegarde JSON invalide.',
+      });
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -517,6 +536,18 @@ export const AdminView: React.FC<{
                   <Download className="w-4 h-4" />
                   Télécharger la sauvegarde complète (JSON)
                 </button>
+
+                <label className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-semibold text-blue-900 border border-blue-200 bg-blue-50/70 hover:bg-blue-100 rounded-lg cursor-pointer">
+                  <Upload className="w-4 h-4" />
+                  Restaurer une sauvegarde (JSON)
+                  <input
+                    type="file"
+                    accept="application/json,.json"
+                    onChange={handleRestoreBackup}
+                    disabled={busy}
+                    className="sr-only"
+                  />
+                </label>
 
                 <button
                   type="button"

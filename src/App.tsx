@@ -92,7 +92,15 @@ export default function App() {
       const data = await apiRequest<AppState>('/api/state', {}, user);
       setAppState(data);
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : 'Erreur de chargement.');
+      const msg = err instanceof Error ? err.message : 'Erreur de chargement.';
+      if (msg.includes('Non authentifié') || msg.includes('Authentification requise')) {
+        sessionStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem(SESSION_KEY);
+        setSession(null);
+        setAppState(null);
+        return;
+      }
+      setLoadError(msg);
     } finally {
       setLoading(false);
     }

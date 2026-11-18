@@ -1,3 +1,4 @@
+import { handleLocalApiRequest } from './localDb';
 import type {
   AcademicYearArchive,
   AttendanceLog,
@@ -11,6 +12,7 @@ import type {
   Payment,
   PaymentNotification,
   SchoolClass,
+  SchoolDatabase,
   SchoolSettings,
   Student,
   Subject,
@@ -44,11 +46,22 @@ export interface SessionUser {
   role: UserRole;
 }
 
+const API_BASE = ((import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
+let staticLocalMode = false;
+
+export function isUsingLocalBrowserDatabase(): boolean {
+  return staticLocalMode;
+}
+
 export async function apiRequest<T>(
   url: string,
   options: RequestInit = {},
   session?: SessionUser | null
 ): Promise<T> {
+  if (staticLocalMode && url.startsWith('/api/')) {
+    return handleLocalApiRequest<T>(url, options, session);
+  }
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...((options.headers as Record<string, string>) || {}),
@@ -58,9 +71,27 @@ export async function apiRequest<T>(
     headers['x-user-role'] = session.role;
   }
 
-  const res = await fetch(url, { ...options, headers });
-  const contentType = res.headers.get('content-type') || '';
-  const data = contentType.includes('application/json') ? await res.json() : await res.text();
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${url}`, { ...options, headers });
+  } catch {
+    if (url.startsWith('/api/')) {
+      staticLocalMode = true;
+      return handleLocalApiRequest<T>(url, options, session);
+    }
+    throw new Error('Connexion au serveur impossible.');
+  }
+
+  const contentType = (res.headers.get('content-type') || '').toLowerCase();
+  const isJson = contentType.includes('application/json');
+
+  // Static hosts like Netlify (e.g. jegamaschool1.netlify.app) return HTML (404 page or SPA index.html) for /api/*
+  if (!isJson && url.startsWith('/api/')) {
+    staticLocalMode = true;
+    return handleLocalApiRequest<T>(url, options, session);
+  }
+
+  const data = isJson ? await res.json() : await res.text();
 
   if (!res.ok) {
     const errMsg =
@@ -70,4 +101,8 @@ export async function apiRequest<T>(
     throw new Error(errMsg);
   }
   return data as T;
+}
+
+export async function downloadBackupJson(session: SessionUser): Promise<SchoolDatabase> {
+  return apiRequest<SchoolDatabase>('/api/admin/backup', { method: 'GET' }, session);
 }

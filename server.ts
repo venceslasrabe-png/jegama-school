@@ -1244,6 +1244,29 @@ async function startServer() {
     res.json(db);
   });
 
+  app.post('/api/admin/restore', requireRole(['admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const payload = req.body as SchoolDatabase;
+    if (!payload || !Array.isArray(payload.users) || !Array.isArray(payload.students) || !payload.settings) {
+      res.status(400).json({ error: 'Fichier de sauvegarde JSON invalide.' });
+      return;
+    }
+    if (!Array.isArray(payload.archivedYears)) {
+      payload.archivedYears = [];
+    }
+    addAuditLog(
+      payload,
+      actor,
+      'Restauration sauvegarde JSON',
+      'Système',
+      'restore',
+      `Base restaurée (${payload.students.length} élève(s), ${payload.archivedYears.length} archive(s)).`
+    );
+    saveDatabase(payload);
+    res.json({ ok: true });
+  });
+
   app.post('/api/admin/academic-years/create', requireRole(['admin']), (req, res) => {
     const db = loadDatabase();
     const actor = getActor(req, db)!;
