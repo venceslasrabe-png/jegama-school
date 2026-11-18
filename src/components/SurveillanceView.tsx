@@ -300,11 +300,11 @@ export const SurveillanceView: React.FC<{
     <div className="space-y-6">
       {/* Header + Offline mode control */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-slate-900">
+        <div className="min-w-0">
+          <h1 className="font-display text-xl sm:text-2xl font-bold text-slate-900">
             Surveillance & Guérite
           </h1>
-          <p className="text-sm text-slate-500 mt-0.5">
+          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
             Pointage rapide par lecteur code-barres ou ID carte, vérification visuelle et mode dégradé hors-ligne.
           </p>
         </div>
@@ -313,7 +313,7 @@ export const SurveillanceView: React.FC<{
           <button
             type="button"
             onClick={() => setSimulatedOffline(!simulatedOffline)}
-            className={`inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg border transition-colors whitespace-nowrap ${
+            className={`inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold rounded-lg border transition-colors text-left sm:whitespace-nowrap ${
               simulatedOffline
                 ? 'bg-amber-50 border-amber-300 text-amber-900'
                 : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
@@ -321,13 +321,13 @@ export const SurveillanceView: React.FC<{
           >
             {simulatedOffline ? (
               <>
-                <WifiOff className="w-4 h-4 text-amber-700" />
-                Mode hors-ligne actif (cliquez pour rétablir)
+                <WifiOff className="w-4 h-4 text-amber-700 shrink-0" />
+                <span>Mode hors-ligne actif (rétablir)</span>
               </>
             ) : (
               <>
-                <Wifi className="w-4 h-4 text-emerald-700" />
-                Connexion active · Simuler coupure
+                <Wifi className="w-4 h-4 text-emerald-700 shrink-0" />
+                <span>Connexion active · Simuler coupure</span>
               </>
             )}
           </button>
@@ -348,10 +348,10 @@ export const SurveillanceView: React.FC<{
 
       {/* Scanner & Visual Verification Split */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
-        <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-6 space-y-5">
-          <div className="flex items-center justify-between">
+        <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-5 min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-display text-base font-bold text-slate-900 flex items-center gap-2">
-              <ScanBarcode className="w-5 h-5 text-blue-900" />
+              <ScanBarcode className="w-5 h-5 text-blue-900 shrink-0" />
               Lecteur de carte scolaire
             </h2>
             {offlineQueue.length > 0 && (
@@ -368,19 +368,19 @@ export const SurveillanceView: React.FC<{
             }}
             className="space-y-4"
           >
-            <div className="flex gap-2">
+            <div className="flex flex-col sm:flex-row gap-2">
               <input
                 type="text"
                 disabled={isReadOnly}
                 value={scanInput}
                 onChange={(e) => setScanInput(e.target.value)}
                 placeholder="Scanner ou saisir ID (ex. JS-26-0001)"
-                className="flex-1 px-4 py-3 text-base font-mono uppercase border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900 disabled:bg-slate-100"
+                className="flex-1 min-w-0 px-3.5 sm:px-4 py-3 text-sm sm:text-base font-mono uppercase border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900 disabled:bg-slate-100"
               />
               <button
                 type="submit"
                 disabled={isReadOnly || busy || !scanInput.trim()}
-                className="px-5 py-3 text-sm font-semibold text-white bg-blue-900 hover:bg-blue-800 disabled:opacity-50 rounded-lg whitespace-nowrap"
+                className="px-5 py-3 text-sm font-semibold text-white bg-blue-900 hover:bg-blue-800 disabled:opacity-50 rounded-lg whitespace-nowrap shrink-0"
               >
                 Pointer
               </button>
@@ -446,7 +446,7 @@ export const SurveillanceView: React.FC<{
         </div>
 
         {/* Visual Verification Panel (RF-SUR-03, RF-SUR-04) */}
-        <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-center">
+        <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col justify-center min-w-0">
           {!scanResult ? (
             <div className="text-center py-8 space-y-2">
               <div className="text-sm font-semibold text-slate-700">
@@ -474,15 +474,15 @@ export const SurveillanceView: React.FC<{
               </div>
 
               {scanResult.student && (
-                <div className="flex items-center gap-5 pt-2">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-5 pt-2">
                   <StudentAvatar
                     photoUrl={scanResult.student.photoUrl}
                     firstName={scanResult.student.firstName}
                     lastName={scanResult.student.lastName}
-                    sizeClass="w-24 h-24"
+                    sizeClass="w-20 h-20 sm:w-24 sm:h-24"
                   />
-                  <div className="space-y-1">
-                    <div className="text-xl font-bold text-slate-900">
+                  <div className="space-y-1 min-w-0">
+                    <div className="text-lg sm:text-xl font-bold text-slate-900">
                       {scanResult.student.lastName} {scanResult.student.firstName}
                     </div>
                     <div className="text-sm text-slate-700">
@@ -503,27 +503,27 @@ export const SurveillanceView: React.FC<{
       </div>
 
       {/* Real-time status tabs (RF-SUR-05) */}
-      <div className="bg-white border border-slate-200 rounded-xl p-6 space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <h2 className="font-display text-base font-bold text-slate-900">
             Tableau en temps réel ({today})
           </h2>
-          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg self-start">
+          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg self-start max-w-full overflow-x-auto">
             <button
               type="button"
               onClick={() => setPresenceTab('presents')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
                 presenceTab === 'presents'
                   ? 'bg-white text-slate-900 shadow-sm'
                   : 'text-slate-600'
               }`}
             >
-              Présents dans l’école ({todayStatus.presents.length})
+              Présents ({todayStatus.presents.length})
             </button>
             <button
               type="button"
               onClick={() => setPresenceTab('sortis')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
                 presenceTab === 'sortis' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'
               }`}
             >
@@ -532,13 +532,13 @@ export const SurveillanceView: React.FC<{
             <button
               type="button"
               onClick={() => setPresenceTab('non_pointes')}
-              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
+              className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
                 presenceTab === 'non_pointes'
                   ? 'bg-white text-slate-900 shadow-sm'
                   : 'text-slate-600'
               }`}
             >
-              Pas encore pointés ({todayStatus.nonPointes.length})
+              Non pointés ({todayStatus.nonPointes.length})
             </button>
           </div>
         </div>
@@ -578,17 +578,17 @@ export const SurveillanceView: React.FC<{
 
       {/* Journal & Absence Motifs */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-8 bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+        <div className="lg:col-span-8 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-4 min-w-0">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="font-display text-base font-bold text-slate-900">
               Journal des passages du jour ({filteredJournal.length})
             </h2>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               <select
                 value={classFilter}
                 onChange={(e) => setClassFilter(e.target.value)}
                 aria-label="Filtrer par classe"
-                className="px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
+                className="flex-1 sm:flex-initial px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
               >
                 <option value="all">Toutes les classes</option>
                 {state.classes.map((c) => (
@@ -608,14 +608,14 @@ export const SurveillanceView: React.FC<{
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+            <table className="w-full text-sm min-w-[520px]">
               <thead>
                 <tr className="border-b border-slate-200 text-xs text-slate-500 text-left">
-                  <th className="py-2 font-medium">Heure</th>
-                  <th className="py-2 font-medium">Élève & Classe</th>
-                  <th className="py-2 font-medium">Mouvement</th>
-                  <th className="py-2 font-medium">Motif / Observation</th>
+                  <th className="py-2 pr-3 font-medium">Heure</th>
+                  <th className="py-2 px-3 font-medium">Élève & Classe</th>
+                  <th className="py-2 px-3 font-medium">Mouvement</th>
+                  <th className="py-2 pl-3 font-medium">Motif / Observation</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -653,7 +653,7 @@ export const SurveillanceView: React.FC<{
           </div>
         </div>
 
-        <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-6 space-y-4">
+        <div className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-4 h-fit">
           <h2 className="font-display text-base font-bold text-slate-900">
             Enregistrer un motif (absence / retard)
           </h2>

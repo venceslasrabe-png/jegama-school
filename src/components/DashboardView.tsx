@@ -115,14 +115,14 @@ export const DashboardView: React.FC<{
   ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 sm:space-y-8">
       {/* Header summary */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-slate-900">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3 sm:gap-4">
+        <div className="min-w-0">
+          <h1 className="font-display text-xl sm:text-2xl font-bold text-slate-900">
             Tableau de bord · {state.settings.schoolName}
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-xs sm:text-sm text-slate-500 mt-1">
             {state.settings.address}, {state.settings.city} · Année scolaire{' '}
             <span className="font-mono text-slate-700">{state.settings.currentAcademicYear}</span>
             {' · '}Profil actif : <span className="font-medium text-slate-700">{ROLE_LABELS[role]}</span>
@@ -131,10 +131,10 @@ export const DashboardView: React.FC<{
       </div>
 
       {/* KPI Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 bg-white border border-slate-200 rounded-xl divide-y sm:divide-y-0 sm:divide-x divide-slate-200">
-        <div className="p-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
+        <div className="p-4 sm:p-5 bg-white">
           <div className="text-xs font-medium text-slate-500">Élèves inscrits</div>
-          <div className="mt-2 text-2xl font-mono font-bold text-slate-900 tabular-nums">
+          <div className="mt-1.5 sm:mt-2 text-xl sm:text-2xl font-mono font-bold text-slate-900 tabular-nums">
             {summary.totalStudents}
           </div>
           <div className="mt-1 text-xs text-slate-500 tabular-nums">
@@ -142,19 +142,19 @@ export const DashboardView: React.FC<{
           </div>
         </div>
 
-        <div className="p-5">
+        <div className="p-4 sm:p-5 bg-white">
           <div className="text-xs font-medium text-slate-500">Scolarité encaissée</div>
-          <div className="mt-2 text-2xl font-mono font-bold text-emerald-700 tabular-nums">
+          <div className="mt-1.5 sm:mt-2 text-xl sm:text-2xl font-mono font-bold text-emerald-700 tabular-nums">
             {summary.collectionRatePercent}%
           </div>
-          <div className="mt-1 text-xs font-mono text-slate-500 tabular-nums">
+          <div className="mt-1 text-xs font-mono text-slate-500 tabular-nums truncate">
             {formatFcfa(summary.totalCollectedFcfa)}
           </div>
         </div>
 
-        <div className="p-5">
+        <div className="p-4 sm:p-5 bg-white">
           <div className="text-xs font-medium text-slate-500">Présents aujourd’hui</div>
-          <div className="mt-2 text-2xl font-mono font-bold text-blue-900 tabular-nums">
+          <div className="mt-1.5 sm:mt-2 text-xl sm:text-2xl font-mono font-bold text-blue-900 tabular-nums">
             {summary.presentTodayCount}
           </div>
           <div className="mt-1 text-xs text-slate-500 tabular-nums">
@@ -162,9 +162,9 @@ export const DashboardView: React.FC<{
           </div>
         </div>
 
-        <div className="p-5">
+        <div className="p-4 sm:p-5 bg-white">
           <div className="text-xs font-medium text-slate-500">Paiements en attente</div>
-          <div className="mt-2 text-2xl font-mono font-bold text-amber-700 tabular-nums">
+          <div className="mt-1.5 sm:mt-2 text-xl sm:text-2xl font-mono font-bold text-amber-700 tabular-nums">
             {summary.pendingNotificationsCount}
           </div>
           <div className="mt-1 text-xs text-slate-500 tabular-nums">
@@ -172,9 +172,9 @@ export const DashboardView: React.FC<{
           </div>
         </div>
 
-        <div className="p-5">
+        <div className="p-4 sm:p-5 bg-white sm:col-span-2 lg:col-span-1">
           <div className="text-xs font-medium text-slate-500">Bulletins à remettre</div>
-          <div className="mt-2 text-2xl font-mono font-bold text-slate-900 tabular-nums">
+          <div className="mt-1.5 sm:mt-2 text-xl sm:text-2xl font-mono font-bold text-slate-900 tabular-nums">
             {summary.bulletinsToDeliverCount}
           </div>
           <div className="mt-1 text-xs text-slate-500">
@@ -185,10 +185,10 @@ export const DashboardView: React.FC<{
 
       {/* Clickable Section Cards (4-column horizontal row) */}
       <div>
-        <h2 className="font-display text-base font-semibold text-slate-900 mb-4">
+        <h2 className="font-display text-base font-semibold text-slate-900 mb-3 sm:mb-4">
           Rubriques de gestion
         </h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {modules.map((mod) => {
             const access = canAccess(mod.id);
             return (
@@ -197,7 +197,7 @@ export const DashboardView: React.FC<{
                 type="button"
                 disabled={!access.allowed}
                 onClick={() => access.allowed && onNavigate(mod.id)}
-                className={`text-left p-5 rounded-xl border transition-colors flex flex-col justify-between gap-4 ${
+                className={`text-left p-4 sm:p-5 rounded-xl border transition-colors flex flex-col justify-between gap-4 min-w-0 ${
                   access.allowed
                     ? 'bg-white border-slate-200 hover:border-blue-900 cursor-pointer'
                     : 'bg-slate-100/80 border-slate-200 text-slate-400 cursor-not-allowed opacity-75'
@@ -241,10 +241,10 @@ export const DashboardView: React.FC<{
                 </div>
 
                 <div className="pt-3 border-t border-slate-100 space-y-1 text-xs">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-slate-400 truncate">{mod.metricLabel}</span>
+                  <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
+                    <span className="text-slate-400">{mod.metricLabel}</span>
                     <span
-                      className={`font-mono font-semibold tabular-nums whitespace-nowrap ${
+                      className={`font-mono font-semibold tabular-nums ${
                         access.allowed ? 'text-slate-900' : 'text-slate-500'
                       }`}
                     >
@@ -267,22 +267,22 @@ export const DashboardView: React.FC<{
 
       {/* Cycle breakdown & recent audit */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4">
+        <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
             <h2 className="font-display text-base font-semibold text-slate-900 flex items-center gap-2">
-              <GraduationCap className="w-4 h-4 text-blue-900" />
+              <GraduationCap className="w-4 h-4 text-blue-900 shrink-0" />
               Répartition par cycle et programme
             </h2>
             <span className="text-xs text-slate-500">{state.classes.length} classes ouvertes</span>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+            <table className="w-full text-sm min-w-[440px]">
               <thead>
                 <tr className="border-b border-slate-200 text-xs text-slate-500 text-left">
-                  <th className="py-2 font-medium">Classe</th>
-                  <th className="py-2 font-medium">Cycle</th>
-                  <th className="py-2 font-medium">Programme</th>
-                  <th className="py-2 font-medium text-right">Effectif / Cap.</th>
+                  <th className="py-2 pr-3 font-medium">Classe</th>
+                  <th className="py-2 px-3 font-medium">Cycle</th>
+                  <th className="py-2 px-3 font-medium">Programme</th>
+                  <th className="py-2 pl-3 font-medium text-right">Effectif / Cap.</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -292,10 +292,12 @@ export const DashboardView: React.FC<{
                   ).length;
                   return (
                     <tr key={cls.id} className="hover:bg-slate-50">
-                      <td className="py-2.5 font-semibold text-slate-900">{cls.name}</td>
-                      <td className="py-2.5 text-slate-600">{cls.cycle}</td>
-                      <td className="py-2.5 text-slate-600">{cls.program}</td>
-                      <td className="py-2.5 text-right font-mono tabular-nums text-slate-800">
+                      <td className="py-2.5 pr-3 font-semibold text-slate-900 whitespace-nowrap">
+                        {cls.name}
+                      </td>
+                      <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">{cls.cycle}</td>
+                      <td className="py-2.5 px-3 text-slate-600 whitespace-nowrap">{cls.program}</td>
+                      <td className="py-2.5 pl-3 text-right font-mono tabular-nums text-slate-800 whitespace-nowrap">
                         {count} / {cls.capacity}
                       </td>
                     </tr>
@@ -306,10 +308,10 @@ export const DashboardView: React.FC<{
           </div>
         </div>
 
-        <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-6">
-          <div className="flex items-center justify-between mb-4">
+        <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
             <h2 className="font-display text-base font-semibold text-slate-900 flex items-center gap-2">
-              <ShieldAlert className="w-4 h-4 text-blue-900" />
+              <ShieldAlert className="w-4 h-4 text-blue-900 shrink-0" />
               Dernières opérations tracées
             </h2>
             <span className="text-xs text-slate-500">Journal d’audit</span>
@@ -320,7 +322,7 @@ export const DashboardView: React.FC<{
             <div className="divide-y divide-slate-100">
               {state.auditLogs.slice(0, 5).map((log) => (
                 <div key={log.id} className="py-2.5 space-y-0.5">
-                  <div className="flex items-center justify-between gap-2 text-xs">
+                  <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-0.5 text-xs">
                     <span className="font-semibold text-slate-900">{log.action}</span>
                     <span className="font-mono text-[11px] text-slate-400 tabular-nums">
                       {formatDateTimeFr(log.timestamp)}

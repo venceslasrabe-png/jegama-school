@@ -98,22 +98,22 @@ export const ParentView: React.FC<{
   return (
     <div className="space-y-6">
       {/* Header & Multi-child Switcher (RF-PAR-05) */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
+      <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5 sm:gap-4 min-w-0">
           <StudentAvatar
             photoUrl={student.photoUrl}
             firstName={student.firstName}
             lastName={student.lastName}
-            sizeClass="w-14 h-14"
+            sizeClass="w-12 h-12 sm:w-14 sm:h-14"
           />
-          <div>
-            <div className="text-xs font-medium text-slate-500">
+          <div className="min-w-0">
+            <div className="text-xs font-medium text-slate-500 truncate">
               Espace Parent · Consultation en lecture seule
             </div>
-            <h1 className="font-display text-xl font-bold text-slate-900">
+            <h1 className="font-display text-lg sm:text-xl font-bold text-slate-900 truncate">
               {student.lastName} {student.firstName}
             </h1>
-            <div className="text-xs text-slate-600 mt-0.5">
+            <div className="text-xs text-slate-600 mt-0.5 truncate">
               <span className="font-mono font-semibold text-blue-950">{student.cardId}</span>
               {' · '}
               {schoolClass?.name || student.cycle} · Programme {student.program}
@@ -122,14 +122,14 @@ export const ParentView: React.FC<{
         </div>
 
         {availableStudents.length > 1 && (
-          <div>
+          <div className="w-full sm:w-auto">
             <label className="block text-[11px] font-semibold text-slate-500 mb-1">
               Basculer d’enfant ({availableStudents.length})
             </label>
             <select
               value={student.id}
               onChange={(e) => setSelectedStudentId(e.target.value)}
-              className="px-3.5 py-2 text-sm font-medium border border-slate-300 rounded-lg bg-white"
+              className="w-full sm:w-auto px-3.5 py-2 text-sm font-medium border border-slate-300 rounded-lg bg-white"
             >
               {availableStudents.map((child) => (
                 <option key={child.id} value={child.id}>
@@ -142,11 +142,11 @@ export const ParentView: React.FC<{
       </div>
 
       {/* Navigation Tabs */}
-      <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg w-fit">
+      <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg w-full sm:w-fit max-w-full overflow-x-auto">
         <button
           type="button"
           onClick={() => setActiveTab('presences')}
-          className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
+          className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
             activeTab === 'presences'
               ? 'bg-white text-slate-900 shadow-sm'
               : 'text-slate-600 hover:text-slate-900'
@@ -158,7 +158,7 @@ export const ParentView: React.FC<{
         <button
           type="button"
           onClick={() => setActiveTab('notes')}
-          className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
+          className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
             activeTab === 'notes'
               ? 'bg-white text-slate-900 shadow-sm'
               : 'text-slate-600 hover:text-slate-900'
@@ -170,7 +170,7 @@ export const ParentView: React.FC<{
         <button
           type="button"
           onClick={() => setActiveTab('bulletins')}
-          className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
+          className={`inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
             activeTab === 'bulletins'
               ? 'bg-white text-slate-900 shadow-sm'
               : 'text-slate-600 hover:text-slate-900'
@@ -184,20 +184,20 @@ export const ParentView: React.FC<{
       {/* PRESENCES */}
       {activeTab === 'presences' && (
         <div className="space-y-4">
-          <div className="grid grid-cols-3 bg-white border border-slate-200 rounded-xl divide-x divide-slate-200">
-            <div className="p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
+            <div className="p-4 bg-white">
               <div className="text-xs text-slate-500">Jours de présence</div>
               <div className="mt-1 text-xl font-mono font-bold text-emerald-700 tabular-nums">
                 {monthlyTotals.daysPresent}
               </div>
             </div>
-            <div className="p-4">
+            <div className="p-4 bg-white">
               <div className="text-xs text-slate-500">Retards constatés</div>
               <div className="mt-1 text-xl font-mono font-bold text-amber-700 tabular-nums">
                 {monthlyTotals.lates}
               </div>
             </div>
-            <div className="p-4">
+            <div className="p-4 bg-white">
               <div className="text-xs text-slate-500">Absences signalées</div>
               <div className="mt-1 text-xl font-mono font-bold text-red-700 tabular-nums">
                 {monthlyTotals.absences}
@@ -206,35 +206,20 @@ export const ParentView: React.FC<{
           </div>
 
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
-                  <th className="py-3 px-4 font-semibold">Date</th>
-                  <th className="py-3 px-4 font-semibold">Entrée(s)</th>
-                  <th className="py-3 px-4 font-semibold">Sortie(s)</th>
-                  <th className="py-3 px-4 font-semibold">Observation / Motif</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {attendanceByDay.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="py-8 text-center text-sm text-slate-500">
-                      Aucun passage enregistré à la guérite pour le moment.
-                    </td>
-                  </tr>
-                ) : (
-                  attendanceByDay.map((day) => (
-                    <tr key={day.dateStr}>
-                      <td className="py-3 px-4 font-mono text-xs font-semibold text-slate-900">
+            {/* Mobile Cards */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {attendanceByDay.length === 0 ? (
+                <div className="p-8 text-center text-sm text-slate-500">
+                  Aucun passage enregistré à la guérite pour le moment.
+                </div>
+              ) : (
+                attendanceByDay.map((day) => (
+                  <div key={day.dateStr} className="p-4 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-xs font-bold text-slate-900">
                         {formatDateFr(day.dateStr)}
-                      </td>
-                      <td className="py-3 px-4 font-mono text-xs text-emerald-800">
-                        {day.entries.length > 0 ? day.entries.join(', ') : '—'}
-                      </td>
-                      <td className="py-3 px-4 font-mono text-xs text-slate-700">
-                        {day.exits.length > 0 ? day.exits.join(', ') : '—'}
-                      </td>
-                      <td className="py-3 px-4 text-xs">
+                      </span>
+                      <span className="text-xs">
                         {day.absentReason ? (
                           <span className="font-semibold text-red-700">
                             Absence : {day.absentReason}
@@ -246,12 +231,70 @@ export const ParentView: React.FC<{
                         ) : (
                           <span className="text-slate-500">Présence normale</span>
                         )}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-mono">
+                      <span className="text-emerald-800">
+                        Entrée : {day.entries.length > 0 ? day.entries.join(', ') : '—'}
+                      </span>
+                      <span className="text-slate-600">
+                        Sortie : {day.exits.length > 0 ? day.exits.join(', ') : '—'}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Desktop Table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
+                    <th className="py-3 px-4 font-semibold">Date</th>
+                    <th className="py-3 px-4 font-semibold">Entrée(s)</th>
+                    <th className="py-3 px-4 font-semibold">Sortie(s)</th>
+                    <th className="py-3 px-4 font-semibold">Observation / Motif</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {attendanceByDay.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="py-8 text-center text-sm text-slate-500">
+                        Aucun passage enregistré à la guérite pour le moment.
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    attendanceByDay.map((day) => (
+                      <tr key={day.dateStr}>
+                        <td className="py-3 px-4 font-mono text-xs font-semibold text-slate-900 whitespace-nowrap">
+                          {formatDateFr(day.dateStr)}
+                        </td>
+                        <td className="py-3 px-4 font-mono text-xs text-emerald-800">
+                          {day.entries.length > 0 ? day.entries.join(', ') : '—'}
+                        </td>
+                        <td className="py-3 px-4 font-mono text-xs text-slate-700">
+                          {day.exits.length > 0 ? day.exits.join(', ') : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-xs">
+                          {day.absentReason ? (
+                            <span className="font-semibold text-red-700">
+                              Absence : {day.absentReason}
+                            </span>
+                          ) : day.lateReason ? (
+                            <span className="font-semibold text-amber-700">
+                              Retard : {day.lateReason}
+                            </span>
+                          ) : (
+                            <span className="text-slate-500">Présence normale</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -259,13 +302,13 @@ export const ParentView: React.FC<{
       {/* NOTES */}
       {activeTab === 'notes' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between bg-white border border-slate-200 rounded-xl p-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl p-4">
             <div className="flex items-center gap-3">
-              <label className="text-xs font-semibold text-slate-600">Période :</label>
+              <label className="text-xs font-semibold text-slate-600 shrink-0">Période :</label>
               <select
                 value={selectedPeriodId}
                 onChange={(e) => setSelectedPeriodId(e.target.value)}
-                className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg bg-white font-medium"
+                className="flex-1 sm:flex-initial px-3 py-1.5 text-sm border border-slate-300 rounded-lg bg-white font-medium"
               >
                 {state.periods.map((p) => (
                   <option key={p.id} value={p.id}>
@@ -275,12 +318,12 @@ export const ParentView: React.FC<{
               </select>
             </div>
             {activePeriodBulletin && (
-              <div className="text-right">
-                <span className="text-xs text-slate-500">Moyenne générale : </span>
+              <div className="text-left sm:text-right flex flex-wrap items-baseline gap-x-2">
+                <span className="text-xs text-slate-500">Moyenne générale :</span>
                 <span className="font-mono text-sm font-bold text-blue-950 tabular-nums">
                   {activePeriodBulletin.generalAverage.toFixed(2)} / 20
                 </span>
-                <span className="text-xs text-slate-600 ml-2">
+                <span className="text-xs text-slate-600">
                   · Rang {activePeriodBulletin.rank}e/{activePeriodBulletin.totalStudents} ·{' '}
                   {activePeriodBulletin.mention}
                 </span>
@@ -289,44 +332,80 @@ export const ParentView: React.FC<{
           </div>
 
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
-                  <th className="py-3 px-4 font-semibold">Matière</th>
-                  <th className="py-3 px-4 font-semibold text-right">Coeff.</th>
-                  <th className="py-3 px-4 font-semibold">Notes (/20)</th>
-                  <th className="py-3 px-4 font-semibold text-right">Moyenne</th>
-                  <th className="py-3 px-4 font-semibold">Appréciation</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {studentSubjects.map((sub) => {
-                  const grade = state.grades.find(
-                    (g) =>
-                      g.studentId === student.id &&
-                      g.subjectId === sub.id &&
-                      g.periodId === selectedPeriodId
-                  );
-                  return (
-                    <tr key={sub.id}>
-                      <td className="py-3 px-4 font-medium text-slate-900">{sub.name}</td>
-                      <td className="py-3 px-4 text-right font-mono text-xs text-slate-600">
-                        {sub.coefficient}
-                      </td>
-                      <td className="py-3 px-4 font-mono text-xs text-slate-700">
-                        {grade ? grade.values.join(' · ') : 'En attente'}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono font-bold text-blue-950 tabular-nums">
+            {/* Mobile Cards */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {studentSubjects.map((sub) => {
+                const grade = state.grades.find(
+                  (g) =>
+                    g.studentId === student.id &&
+                    g.subjectId === sub.id &&
+                    g.periodId === selectedPeriodId
+                );
+                return (
+                  <div key={sub.id} className="p-4 space-y-1.5">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <div className="font-semibold text-slate-900 text-sm">
+                        {sub.name}{' '}
+                        <span className="text-xs font-mono text-slate-500 font-normal">
+                          (Coeff. {sub.coefficient})
+                        </span>
+                      </div>
+                      <div className="font-mono text-sm font-bold text-blue-950 tabular-nums shrink-0">
                         {grade ? `${grade.average.toFixed(2)} / 20` : '—'}
-                      </td>
-                      <td className="py-3 px-4 text-xs text-slate-600">
-                        {grade?.teacherAppreciation || '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </div>
+                    </div>
+                    <div className="text-xs font-mono text-slate-700">
+                      Notes : {grade ? grade.values.join(' · ') : 'En attente'}
+                    </div>
+                    {grade?.teacherAppreciation && (
+                      <div className="text-xs text-slate-600">{grade.teacherAppreciation}</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop Table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
+                    <th className="py-3 px-4 font-semibold">Matière</th>
+                    <th className="py-3 px-4 font-semibold text-right">Coeff.</th>
+                    <th className="py-3 px-4 font-semibold">Notes (/20)</th>
+                    <th className="py-3 px-4 font-semibold text-right">Moyenne</th>
+                    <th className="py-3 px-4 font-semibold">Appréciation</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {studentSubjects.map((sub) => {
+                    const grade = state.grades.find(
+                      (g) =>
+                        g.studentId === student.id &&
+                        g.subjectId === sub.id &&
+                        g.periodId === selectedPeriodId
+                    );
+                    return (
+                      <tr key={sub.id}>
+                        <td className="py-3 px-4 font-medium text-slate-900">{sub.name}</td>
+                        <td className="py-3 px-4 text-right font-mono text-xs text-slate-600">
+                          {sub.coefficient}
+                        </td>
+                        <td className="py-3 px-4 font-mono text-xs text-slate-700">
+                          {grade ? grade.values.join(' · ') : 'En attente'}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-bold text-blue-950 tabular-nums whitespace-nowrap">
+                          {grade ? `${grade.average.toFixed(2)} / 20` : '—'}
+                        </td>
+                        <td className="py-3 px-4 text-xs text-slate-600">
+                          {grade?.teacherAppreciation || '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}

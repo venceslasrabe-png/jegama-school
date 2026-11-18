@@ -61,7 +61,7 @@ export const LoginView: React.FC<{
   return (
     <div className="min-h-screen grid grid-cols-1 lg:grid-cols-12 bg-white">
       {/* Left Institutional Navy Panel with Gold Divider */}
-      <section className="lg:col-span-5 bg-[#0B1933] text-white border-b-2 lg:border-b-0 lg:border-r-2 border-[#E5A923] px-8 py-8 flex flex-col justify-between min-h-[360px] lg:min-h-screen">
+      <section className="lg:col-span-5 bg-[#0B1933] text-white border-b-2 lg:border-b-0 lg:border-r-2 border-[#E5A923] px-5 py-5 sm:px-8 sm:py-8 flex flex-col justify-between lg:min-h-screen">
         {/* Top bar inside navy panel */}
         <div className="flex items-center justify-between text-xs font-mono tracking-wider">
           <span className="font-bold text-[#E5A923]">JEGAMA SCHOOL</span>
@@ -69,8 +69,8 @@ export const LoginView: React.FC<{
         </div>
 
         {/* Center institutional crest & title */}
-        <div className="my-10 flex flex-col items-center text-center space-y-5 max-w-sm mx-auto">
-          <div className="w-44 h-44 rounded-2xl bg-white border-2 border-[#E5A923] p-4 flex items-center justify-center shadow-lg">
+        <div className="my-5 sm:my-8 lg:my-10 flex flex-row lg:flex-col items-center text-left lg:text-center gap-4 sm:gap-5 max-w-md lg:max-w-sm mx-auto w-full">
+          <div className="w-20 h-20 sm:w-28 sm:h-28 lg:w-44 lg:h-44 rounded-2xl bg-white border-2 border-[#E5A923] p-2 sm:p-3 lg:p-4 flex items-center justify-center shadow-lg shrink-0">
             <img
               src={SCHOOL_EMBLEM_URL}
               alt="Logo JEGAMA SCHOOL"
@@ -79,11 +79,11 @@ export const LoginView: React.FC<{
             />
           </div>
 
-          <div className="space-y-2">
-            <div className="text-xs font-semibold tracking-wider text-[#E5A923] uppercase">
+          <div className="space-y-1 sm:space-y-2 min-w-0">
+            <div className="text-[11px] sm:text-xs font-semibold tracking-wider text-[#E5A923] uppercase">
               République du Congo · Programmes Congolais & Français
             </div>
-            <h1 className="font-display text-3xl font-extrabold tracking-tight text-white">
+            <h1 className="font-display text-2xl sm:text-3xl font-extrabold tracking-tight text-white">
               JEGAMA SCHOOL
             </h1>
             <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
@@ -93,20 +93,22 @@ export const LoginView: React.FC<{
         </div>
 
         {/* Bottom footer inside navy panel */}
-        <div className="pt-4 border-t border-white/10 flex items-center justify-between text-xs">
+        <div className="pt-3 sm:pt-4 border-t border-white/10 hidden sm:flex items-center justify-between text-xs">
           <span className="text-slate-300">Pointe-Noire · Congo</span>
           <span className="font-semibold text-[#E5A923]">Portail Officiel</span>
         </div>
       </section>
 
       {/* Right White Sign-in Panel */}
-      <section className="lg:col-span-7 bg-white px-6 sm:px-12 py-10 flex items-center justify-center">
-        <div className="w-full max-w-md space-y-6">
+      <section className="lg:col-span-7 bg-white px-4 sm:px-10 lg:px-12 py-7 sm:py-10 flex items-center justify-center">
+        <div className="w-full max-w-md space-y-5 sm:space-y-6">
           {/* Heading & Mode Switch */}
-          <div className="space-y-4">
-            <div className="flex items-center justify-between gap-4 flex-wrap">
-              <h2 className="font-display text-3xl font-bold text-[#0B1933]">Connexion</h2>
-              <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+          <div className="space-y-3 sm:space-y-4">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <h2 className="font-display text-2xl sm:text-3xl font-bold text-[#0B1933]">
+                Connexion
+              </h2>
+              <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg max-w-full">
                 <button
                   type="button"
                   onClick={() => {
@@ -137,7 +139,7 @@ export const LoginView: React.FC<{
                 </button>
               </div>
             </div>
-            <p className="text-sm text-slate-500 leading-relaxed">
+            <p className="text-xs sm:text-sm text-slate-500 leading-relaxed">
               {mode === 'staff'
                 ? 'Saisissez votre adresse mail (ou identifiant) et votre mot de passe pour accéder à la plateforme.'
                 : 'Saisissez uniquement l’ID de la carte scolaire de votre enfant pour consulter son suivi.'}

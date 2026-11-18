@@ -423,17 +423,17 @@ export const ScolariteView: React.FC<{
   return (
     <div className="space-y-6">
       {/* Header + Sub-tabs */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-slate-900">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="font-display text-xl sm:text-2xl font-bold text-slate-900">
             Scolarité & Caisse
           </h1>
-          <p className="text-sm text-slate-500 mt-0.5">
+          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
             Inscriptions, cartes scolaires uniques, encaissements FCFA et relances d’impayés.
           </p>
         </div>
 
-        <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg self-start overflow-x-auto max-w-full">
+        <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg self-start w-full sm:w-auto overflow-x-auto max-w-full">
           {(
             [
               { id: 'dossiers', label: 'Dossiers & Inscriptions' },
@@ -487,15 +487,15 @@ export const ScolariteView: React.FC<{
       {/* TAB 1: DOSSIERS & INSCRIPTIONS */}
       {activeTab === 'dossiers' && (
         <div className="space-y-4">
-          <div className="bg-white border border-slate-200 rounded-xl p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-3 flex-1">
-              <div className="relative flex-1 min-w-[220px] max-w-sm">
+          <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2.5 sm:gap-3 flex-1 min-w-0">
+              <div className="relative w-full sm:flex-1 sm:min-w-[220px] sm:max-w-sm">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Rechercher par nom ou ID carte (JS-26-...)..."
+                  placeholder="Rechercher par nom ou ID carte..."
                   className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900"
                 />
               </div>
@@ -504,7 +504,7 @@ export const ScolariteView: React.FC<{
                 value={cycleFilter}
                 onChange={(e) => setCycleFilter(e.target.value)}
                 aria-label="Filtrer par cycle"
-                className="px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+                className="w-full sm:w-auto px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
               >
                 <option value="all">Tous les cycles</option>
                 {CYCLES.map((c) => (
@@ -518,7 +518,7 @@ export const ScolariteView: React.FC<{
                 value={paymentFilter}
                 onChange={(e) => setPaymentFilter(e.target.value)}
                 aria-label="Filtrer par statut de paiement"
-                className="px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+                className="w-full sm:w-auto px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
               >
                 <option value="all">Tous statuts scolarité</option>
                 <option value="solde">Soldé</option>
@@ -531,7 +531,7 @@ export const ScolariteView: React.FC<{
               <button
                 type="button"
                 onClick={() => setShowEnrollModal(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
+                className="w-full lg:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
               >
                 <UserPlus className="w-4 h-4" />
                 Nouvelle inscription
@@ -540,7 +540,127 @@ export const ScolariteView: React.FC<{
           </div>
 
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <div className="overflow-x-auto">
+            {/* Mobile Student Cards */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {filteredStudents.length === 0 ? (
+                <div className="p-8 text-center text-sm text-slate-500">
+                  Aucun dossier élève ne correspond aux critères sélectionnés.
+                </div>
+              ) : (
+                filteredStudents.map((stu) => {
+                  const cls = state.classes.find((c) => c.id === stu.classId);
+                  const parent = state.parents.find((p) => p.id === stu.parentId);
+                  const bal = getStudentBalance(stu);
+
+                  return (
+                    <div key={stu.id} className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <StudentAvatar
+                            photoUrl={stu.photoUrl}
+                            firstName={stu.firstName}
+                            lastName={stu.lastName}
+                          />
+                          <div className="min-w-0">
+                            <div className="font-semibold text-slate-900 truncate">
+                              {stu.lastName} {stu.firstName}
+                            </div>
+                            <div className="text-xs text-slate-500 font-mono">
+                              {stu.cardId} · {cls ? cls.name : 'Non affecté'}
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              {stu.cycle} · {stu.program}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          {bal.status === 'solde' && (
+                            <span className="text-xs font-semibold text-emerald-700">Soldé</span>
+                          )}
+                          {bal.status === 'partiel' && (
+                            <span className="text-xs font-semibold text-amber-700">Partiel</span>
+                          )}
+                          {bal.status === 'impaye' && (
+                            <span className="text-xs font-semibold text-red-700">Impayé</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs bg-slate-50 rounded-lg px-3 py-2">
+                        <div className="text-slate-600 truncate">
+                          Parent : <span className="font-medium text-slate-800">{parent?.fullName || '—'}</span>
+                        </div>
+                        <div className="font-mono tabular-nums text-slate-900 font-semibold">
+                          {formatFcfa(bal.paid)} / {formatFcfa(bal.expected)}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setCardStudent(stu)}
+                          className="px-3 py-1.5 text-xs font-medium text-slate-700 border border-slate-200 rounded-md hover:bg-slate-100"
+                        >
+                          Carte
+                        </button>
+                        {canCollectCaisse && !isReadOnly && bal.remaining > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPayForm({
+                                amountPaid: Math.min(bal.remaining, 100000),
+                                method: 'Espèces',
+                                trancheLabel: 'Versement scolarité',
+                                notes: '',
+                              });
+                              setCollectTarget({
+                                student: stu,
+                                suggestedAmount: bal.remaining,
+                                trancheLabel: 'Versement scolarité',
+                              });
+                            }}
+                            className="px-3 py-1.5 text-xs font-medium text-white bg-blue-900 rounded-md hover:bg-blue-800"
+                          >
+                            Encaisser
+                          </button>
+                        )}
+                        {canModifyScolarite && !isReadOnly && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setEditingStudent(stu)}
+                              title="Modifier le dossier"
+                              className="p-2 text-slate-600 border border-slate-200 rounded-md hover:bg-slate-100"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setReinscrireStudent(stu)}
+                              title="Réinscrire sans ressaisie"
+                              className="p-2 text-slate-600 border border-slate-200 rounded-md hover:bg-slate-100"
+                            >
+                              <RefreshCw className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              onClick={() => handleReplaceCard(stu)}
+                              title="Déclarer carte perdue et réémettre un nouvel ID (RG-01)"
+                              className="p-2 text-amber-700 border border-amber-200 rounded-md hover:bg-amber-50"
+                            >
+                              <ShieldOff className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
@@ -710,10 +830,10 @@ export const ScolariteView: React.FC<{
       {activeTab === 'caisse' && (
         <div className="space-y-6">
           {/* Pending notifications */}
-          <div className="bg-white border border-slate-200 rounded-xl p-6">
-            <div className="flex items-center justify-between gap-4 mb-4">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-4 mb-4">
               <div className="flex items-center gap-2.5">
-                <Bell className="w-4 h-4 text-amber-600" />
+                <Bell className="w-4 h-4 text-amber-600 shrink-0" />
                 <h2 className="font-display text-base font-bold text-slate-900">
                   Notifications de paiement en attente ({pendingNotifications.length})
                 </h2>
@@ -736,7 +856,7 @@ export const ScolariteView: React.FC<{
                       key={notif.id}
                       className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
                         {stu && (
                           <StudentAvatar
                             photoUrl={stu.photoUrl}
@@ -744,7 +864,7 @@ export const ScolariteView: React.FC<{
                             lastName={stu.lastName}
                           />
                         )}
-                        <div>
+                        <div className="min-w-0">
                           <div className="font-semibold text-slate-900 text-sm">
                             {notif.studentName}{' '}
                             <span className="font-mono text-xs text-slate-500">
@@ -757,8 +877,8 @@ export const ScolariteView: React.FC<{
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center gap-4 shrink-0">
-                        <div className="text-right">
+                      <div className="flex flex-wrap items-center justify-between sm:justify-end gap-3 sm:gap-4 shrink-0">
+                        <div className="text-left sm:text-right">
                           <div className="text-[11px] text-slate-400">Montant attendu</div>
                           <div className="font-mono font-bold text-amber-800 text-sm tabular-nums">
                             {formatFcfa(notif.amountExpected)}
@@ -796,15 +916,15 @@ export const ScolariteView: React.FC<{
 
           {/* Receipt History & Unpaid List */}
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-6">
-              <div className="flex items-center justify-between mb-4">
+            <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 min-w-0">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                 <h2 className="font-display text-base font-bold text-slate-900 flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-blue-900" />
+                  <FileText className="w-4 h-4 text-blue-900 shrink-0" />
                   Historique des reçus ({state.payments.length})
                 </h2>
               </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+              <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+                <table className="w-full text-sm min-w-[540px]">
                   <thead>
                     <tr className="border-b border-slate-200 text-xs text-slate-500 text-left">
                       <th className="py-2 font-medium">N° Reçu</th>
@@ -868,8 +988,8 @@ export const ScolariteView: React.FC<{
               </div>
             </div>
 
-            <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-6">
-              <div className="flex items-center justify-between gap-2 mb-4">
+            <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 min-w-0">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                 <h2 className="font-display text-base font-bold text-slate-900">
                   Dossiers avec solde dû ({unpaidStudents.length})
                 </h2>
@@ -933,16 +1053,16 @@ export const ScolariteView: React.FC<{
       {/* TAB 3: PARENTS & TUTEURS */}
       {activeTab === 'parents' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="font-display text-base font-bold text-slate-900 flex items-center gap-2">
-              <Users className="w-4 h-4 text-blue-900" />
+              <Users className="w-4 h-4 text-blue-900 shrink-0" />
               Répertoire des parents & tuteurs ({state.parents.length})
             </h2>
             {canModifyScolarite && !isReadOnly && (
               <button
                 type="button"
                 onClick={() => setShowParentModal(true)}
-                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg"
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg whitespace-nowrap"
               >
                 <Plus className="w-4 h-4" />
                 Nouveau parent
@@ -951,38 +1071,65 @@ export const ScolariteView: React.FC<{
           </div>
 
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
-                  <th className="py-3 px-4 font-semibold">Nom complet</th>
-                  <th className="py-3 px-4 font-semibold">Téléphone & Adresse</th>
-                  <th className="py-3 px-4 font-semibold">Enfants rattachés</th>
-                  <th className="py-3 px-4 font-semibold text-right">Code d’accès parent</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {state.parents.map((p) => {
-                  const children = state.students.filter((s) => s.parentId === p.id);
-                  return (
-                    <tr key={p.id} className="hover:bg-slate-50">
-                      <td className="py-3 px-4 font-semibold text-slate-900">{p.fullName}</td>
-                      <td className="py-3 px-4">
-                        <div className="font-mono text-xs text-slate-800">{p.phone}</div>
-                        <div className="text-xs text-slate-500">{p.address}</div>
-                      </td>
-                      <td className="py-3 px-4 text-xs text-slate-700">
-                        {children.length === 0
-                          ? 'Aucun enfant lié'
-                          : children.map((c) => `${c.firstName} ${c.lastName} (${c.cardId})`).join(' · ')}
-                      </td>
-                      <td className="py-3 px-4 text-right font-mono font-semibold text-blue-950">
+            {/* Mobile Cards */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {state.parents.map((p) => {
+                const children = state.students.filter((s) => s.parentId === p.id);
+                return (
+                  <div key={p.id} className="p-4 space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="font-semibold text-slate-900 text-sm">{p.fullName}</div>
+                      <div className="font-mono text-xs font-semibold text-blue-950">
                         {p.accessCode || '—'}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                      </div>
+                    </div>
+                    <div className="text-xs font-mono text-slate-700">{p.phone}</div>
+                    <div className="text-xs text-slate-500">{p.address}</div>
+                    <div className="text-xs text-slate-600 pt-1">
+                      {children.length === 0
+                        ? 'Aucun enfant lié'
+                        : children.map((c) => `${c.firstName} ${c.lastName} (${c.cardId})`).join(' · ')}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop Table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
+                    <th className="py-3 px-4 font-semibold">Nom complet</th>
+                    <th className="py-3 px-4 font-semibold">Téléphone & Adresse</th>
+                    <th className="py-3 px-4 font-semibold">Enfants rattachés</th>
+                    <th className="py-3 px-4 font-semibold text-right">Code d’accès parent</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {state.parents.map((p) => {
+                    const children = state.students.filter((s) => s.parentId === p.id);
+                    return (
+                      <tr key={p.id} className="hover:bg-slate-50">
+                        <td className="py-3 px-4 font-semibold text-slate-900">{p.fullName}</td>
+                        <td className="py-3 px-4">
+                          <div className="font-mono text-xs text-slate-800">{p.phone}</div>
+                          <div className="text-xs text-slate-500">{p.address}</div>
+                        </td>
+                        <td className="py-3 px-4 text-xs text-slate-700">
+                          {children.length === 0
+                            ? 'Aucun enfant lié'
+                            : children.map((c) => `${c.firstName} ${c.lastName} (${c.cardId})`).join(' · ')}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-semibold text-blue-950">
+                          {p.accessCode || '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -990,10 +1137,10 @@ export const ScolariteView: React.FC<{
       {/* TAB 4: GRILLE TARIFAIRE */}
       {activeTab === 'tarifs' && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex items-center justify-between">
             <div>
               <h2 className="font-display text-base font-bold text-slate-900 flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-blue-900" />
+                <CreditCard className="w-4 h-4 text-blue-900 shrink-0" />
                 Grille tarifaire annuelle (FCFA)
               </h2>
               <p className="text-xs text-slate-500">
@@ -1002,7 +1149,7 @@ export const ScolariteView: React.FC<{
             </div>
           </div>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm min-w-[680px]">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
                   <th className="py-3 px-4 font-semibold">Cycle</th>
@@ -1054,10 +1201,10 @@ export const ScolariteView: React.FC<{
 
       {/* MODAL: ENROLL STUDENT */}
       {showEnrollModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
           <form
             onSubmit={handleEnrollSubmit}
-            className="bg-white border border-slate-200 rounded-xl max-w-2xl w-full p-6 space-y-5 my-auto"
+            className="bg-white border border-slate-200 rounded-xl max-w-2xl w-full max-h-[92vh] overflow-y-auto p-4 sm:p-6 space-y-5 my-auto"
           >
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <h3 className="font-display text-lg font-bold text-slate-900">
@@ -1222,7 +1369,7 @@ export const ScolariteView: React.FC<{
             </div>
 
             <div className="pt-3 border-t border-slate-200 space-y-3">
-              <div className="flex items-center justify-between">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="text-xs font-semibold text-slate-700">Parent / Tuteur légal</span>
                 <div className="flex gap-2">
                   <button
@@ -1320,16 +1467,16 @@ export const ScolariteView: React.FC<{
 
       {/* MODAL: EDIT STUDENT */}
       {editingStudent && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
           <form
             onSubmit={handleEditStudentSubmit}
-            className="bg-white border border-slate-200 rounded-xl max-w-lg w-full p-6 space-y-4"
+            className="bg-white border border-slate-200 rounded-xl max-w-lg w-full max-h-[92vh] overflow-y-auto p-4 sm:p-6 space-y-4 my-auto"
           >
             <h3 className="font-display text-lg font-bold text-slate-900">
               Modifier le dossier · {editingStudent.cardId}
             </h3>
 
-            <div className="flex items-center gap-4 p-3 rounded-lg bg-slate-50 border border-slate-200">
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4 p-3 rounded-lg bg-slate-50 border border-slate-200">
               <StudentAvatar
                 photoUrl={editingStudent.photoUrl}
                 firstName={editingStudent.firstName}
@@ -1355,7 +1502,7 @@ export const ScolariteView: React.FC<{
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Nom</label>
                 <input
@@ -1427,8 +1574,8 @@ export const ScolariteView: React.FC<{
 
       {/* MODAL: REINSCRIPTION */}
       {reinscrireStudent && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 space-y-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-5 sm:p-6 space-y-4 my-auto">
             <h3 className="font-display text-lg font-bold text-slate-900">
               Réinscription rapide (sans ressaisie)
             </h3>
@@ -1468,10 +1615,10 @@ export const ScolariteView: React.FC<{
 
       {/* MODAL: COLLECT PAYMENT */}
       {collectTarget && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <form
             onSubmit={handleCollectSubmit}
-            className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 space-y-4"
+            className="bg-white border border-slate-200 rounded-xl max-w-md w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 my-auto"
           >
             <h3 className="font-display text-lg font-bold text-slate-900">
               Encaissement Caisse
@@ -1562,10 +1709,10 @@ export const ScolariteView: React.FC<{
 
       {/* MODAL: ADD PARENT */}
       {showParentModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <form
             onSubmit={handleAddParent}
-            className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 space-y-4"
+            className="bg-white border border-slate-200 rounded-xl max-w-md w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 my-auto"
           >
             <h3 className="font-display text-lg font-bold text-slate-900">
               Nouveau parent / tuteur
@@ -1624,10 +1771,10 @@ export const ScolariteView: React.FC<{
 
       {/* MODAL: EDIT FEE */}
       {editingFee && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <form
             onSubmit={handleSaveFee}
-            className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 space-y-4"
+            className="bg-white border border-slate-200 rounded-xl max-w-md w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 my-auto"
           >
             <h3 className="font-display text-lg font-bold text-slate-900">
               Tarif · {editingFee.cycle} ({editingFee.program})

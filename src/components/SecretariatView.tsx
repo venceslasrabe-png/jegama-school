@@ -725,17 +725,17 @@ export const SecretariatView: React.FC<{
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-slate-900">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="font-display text-xl sm:text-2xl font-bold text-slate-900">
             Secrétariat académique
           </h1>
-          <p className="text-sm text-slate-500 mt-0.5">
+          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
             Constitution des classes, matières, coefficients, saisie des notes (/20) et livraison des bulletins.
           </p>
         </div>
 
-        <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg self-start overflow-x-auto max-w-full">
+        <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg self-start w-full sm:w-auto overflow-x-auto max-w-full">
           {(
             [
               { id: 'notes', label: 'Notes & Moyennes' },
@@ -770,7 +770,7 @@ export const SecretariatView: React.FC<{
           }`}
         >
           <span>{feedback.text}</span>
-          <button type="button" onClick={() => setFeedback(null)} className="underline">
+          <button type="button" onClick={() => setFeedback(null)} className="underline shrink-0">
             Fermer
           </button>
         </div>
@@ -779,16 +779,16 @@ export const SecretariatView: React.FC<{
       {/* Shared Period / Class selector for Notes & Bulletins */}
       {(activeTab === 'notes' || activeTab === 'bulletins') && (
         <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-4">
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div className="flex flex-wrap items-end gap-3">
-              <div>
+          <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+            <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-end gap-3 w-full lg:w-auto">
+              <div className="w-full sm:w-auto">
                 <label className="block text-[11px] font-semibold text-slate-500 mb-1">
                   Période d’évaluation
                 </label>
                 <select
                   value={selectedPeriodId}
                   onChange={(e) => setSelectedPeriodId(e.target.value)}
-                  className="px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white font-medium"
+                  className="w-full sm:w-auto px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white font-medium"
                 >
                   {state.periods.map((p) => (
                     <option key={p.id} value={p.id}>
@@ -798,14 +798,14 @@ export const SecretariatView: React.FC<{
                 </select>
               </div>
 
-              <div>
+              <div className="w-full sm:w-auto">
                 <label className="block text-[11px] font-semibold text-slate-500 mb-1">
                   Classe
                 </label>
                 <select
                   value={selectedClassId}
                   onChange={(e) => setSelectedClassId(e.target.value)}
-                  className="px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white font-medium"
+                  className="w-full sm:w-auto px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white font-medium"
                 >
                   {state.classes.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -816,14 +816,14 @@ export const SecretariatView: React.FC<{
               </div>
 
               {activeTab === 'notes' && entryMode === 'classe' && (
-                <div>
+                <div className="w-full sm:w-auto">
                   <label className="block text-[11px] font-semibold text-slate-500 mb-1">
                     Matière
                   </label>
                   <select
                     value={selectedSubjectId}
                     onChange={(e) => setSelectedSubjectId(e.target.value)}
-                    className="px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white font-medium"
+                    className="w-full sm:w-auto px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white font-medium"
                   >
                     {classSubjects.length === 0 ? (
                       <option value="">Aucune matière configurée</option>
@@ -839,14 +839,14 @@ export const SecretariatView: React.FC<{
               )}
 
               {activeTab === 'notes' && entryMode === 'eleve' && (
-                <div>
+                <div className="w-full sm:w-auto">
                   <label className="block text-[11px] font-semibold text-slate-500 mb-1">
                     Élève
                   </label>
                   <select
                     value={selectedStudentId}
                     onChange={(e) => setSelectedStudentId(e.target.value)}
-                    className="px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white font-medium"
+                    className="w-full sm:w-auto px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white font-medium"
                   >
                     {classStudents.length === 0 ? (
                       <option value="">Aucun élève dans cette classe</option>
@@ -863,11 +863,11 @@ export const SecretariatView: React.FC<{
             </div>
 
             {activeTab === 'notes' && (
-              <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg">
+              <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg w-full sm:w-auto overflow-x-auto max-w-full">
                 <button
                   type="button"
                   onClick={() => setEntryMode('classe')}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
+                  className={`flex-1 sm:flex-initial px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
                     entryMode === 'classe'
                       ? 'bg-white text-slate-900 shadow-sm'
                       : 'text-slate-600 hover:text-slate-900'
@@ -878,7 +878,7 @@ export const SecretariatView: React.FC<{
                 <button
                   type="button"
                   onClick={() => setEntryMode('eleve')}
-                  className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
+                  className={`flex-1 sm:flex-initial px-3 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
                     entryMode === 'eleve'
                       ? 'bg-white text-slate-900 shadow-sm'
                       : 'text-slate-600 hover:text-slate-900'
@@ -1081,8 +1081,149 @@ export const SecretariatView: React.FC<{
               )}
             </div>
           ) : entryMode === 'classe' ? (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <>
+              {/* Mobile Grade Entry Cards (Par classe & matière) */}
+              <div className="md:hidden divide-y divide-slate-100">
+                {classStudents.length === 0 ? (
+                  <div className="p-8 text-center text-sm text-slate-500">
+                    Aucun élève affecté à cette classe. Affectez des élèves dans l’onglet Classes & Matières.
+                  </div>
+                ) : (
+                  classStudents.map((stu) => {
+                    const key = `${stu.id}::${selectedSubjectId}`;
+                    const draft = gradeDrafts[key] || {
+                      slots: Array.from({ length: evalSlotCount }, () => ''),
+                      appreciation: '',
+                      overrideReason: '',
+                      dirty: false,
+                    };
+                    const existing = state.grades.find(
+                      (g) =>
+                        g.studentId === stu.id &&
+                        g.subjectId === selectedSubjectId &&
+                        g.periodId === selectedPeriodId
+                    );
+                    const { hasInvalid, validNumbers, avg } = extractRowValues(draft);
+                    const mention =
+                      avg !== null
+                        ? getMentionForScore(avg, state.settings.mentionThresholds)
+                        : '—';
+
+                    return (
+                      <div
+                        key={`mob-${stu.id}`}
+                        className={`p-4 space-y-3 ${draft.dirty ? 'bg-amber-50/40' : ''}`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <StudentAvatar
+                              photoUrl={stu.photoUrl}
+                              firstName={stu.firstName}
+                              lastName={stu.lastName}
+                              sizeClass="w-8 h-8"
+                            />
+                            <div className="min-w-0">
+                              <div className="font-semibold text-slate-900 text-sm truncate">
+                                {stu.lastName} {stu.firstName}
+                              </div>
+                              <div className="text-[11px] font-mono text-slate-500">
+                                {stu.cardId}
+                                {draft.dirty ? ' · Modifié' : existing ? ' · Enregistré' : ''}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="font-mono font-bold text-sm text-blue-950 tabular-nums">
+                              {avg !== null ? `${avg.toFixed(2)}/20` : '—'}
+                            </div>
+                            <div className="text-[11px] text-slate-500">{mention}</div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2">
+                          {Array.from({ length: evalSlotCount }).map((_, idx) => {
+                            const cellVal = draft.slots[idx] ?? '';
+                            const cellStatus = parseNoteSlot(cellVal);
+                            return (
+                              <div key={`mec-${stu.id}-${idx}`}>
+                                <label className="block text-[10px] font-semibold text-slate-500 mb-0.5">
+                                  Note {idx + 1}
+                                </label>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  disabled={isReadOnly}
+                                  value={cellVal}
+                                  onChange={(e) =>
+                                    updateDraftSlot(stu.id, selectedSubjectId, idx, e.target.value)
+                                  }
+                                  placeholder="—"
+                                  className={`w-full px-2 py-1.5 text-sm font-mono tabular-nums text-center border rounded-md disabled:bg-slate-100 ${
+                                    cellStatus === 'invalid'
+                                      ? 'border-red-500 bg-red-50 text-red-700'
+                                      : 'border-slate-300'
+                                  }`}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <input
+                          type="text"
+                          disabled={isReadOnly}
+                          value={draft.appreciation}
+                          onChange={(e) =>
+                            updateDraftField(stu.id, selectedSubjectId, 'appreciation', e.target.value)
+                          }
+                          placeholder="Appréciation enseignant..."
+                          className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-md disabled:bg-slate-100"
+                        />
+
+                        {selectedPeriod?.status === 'verrouille' && (
+                          <input
+                            type="text"
+                            disabled={isReadOnly}
+                            value={draft.overrideReason}
+                            onChange={(e) =>
+                              updateDraftField(stu.id, selectedSubjectId, 'overrideReason', e.target.value)
+                            }
+                            placeholder={batchOverrideReason ? 'Utilise motif global' : 'Motif de correction (RG-08)...'}
+                            className="w-full px-2.5 py-1.5 text-xs border border-amber-300 rounded-md disabled:bg-slate-100"
+                          />
+                        )}
+
+                        {!isReadOnly && (
+                          <div className="flex items-center justify-end gap-2">
+                            {existing && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => handleDeleteGrade(stu.id, selectedSubjectId)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-red-700 border border-red-200 rounded-md hover:bg-red-50"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                Supprimer
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              disabled={busy || !selectedSubjectId || hasInvalid || validNumbers.length === 0}
+                              onClick={() => handleSaveGrade(stu.id, selectedSubjectId)}
+                              className="px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 disabled:opacity-45 rounded-md"
+                            >
+                              Enregistrer
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
                     <th className="py-3 px-4 font-semibold">Élève</th>
@@ -1261,9 +1402,139 @@ export const SecretariatView: React.FC<{
                 </tbody>
               </table>
             </div>
+            </>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <>
+              {/* Mobile Grade Entry Cards (Par élève) */}
+              <div className="md:hidden divide-y divide-slate-100">
+                {!selectedStudentId ? (
+                  <div className="p-8 text-center text-sm text-slate-500">
+                    Aucun élève affecté à cette classe.
+                  </div>
+                ) : (
+                  classSubjects.map((sub) => {
+                    const key = `${selectedStudentId}::${sub.id}`;
+                    const draft = gradeDrafts[key] || {
+                      slots: Array.from({ length: evalSlotCount }, () => ''),
+                      appreciation: '',
+                      overrideReason: '',
+                      dirty: false,
+                    };
+                    const existing = state.grades.find(
+                      (g) =>
+                        g.studentId === selectedStudentId &&
+                        g.subjectId === sub.id &&
+                        g.periodId === selectedPeriodId
+                    );
+                    const { hasInvalid, validNumbers, avg } = extractRowValues(draft);
+
+                    return (
+                      <div
+                        key={`mobs-${sub.id}`}
+                        className={`p-4 space-y-3 ${draft.dirty ? 'bg-amber-50/40' : ''}`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="font-semibold text-slate-900 text-sm">
+                              <span className="font-mono text-xs text-slate-500 mr-1.5">
+                                [{sub.code}]
+                              </span>
+                              {sub.name}
+                            </div>
+                            <div className="text-[11px] text-slate-500">
+                              Coeff. {sub.coefficient} · {sub.teacherName}
+                              {draft.dirty ? ' · Modifié' : existing ? ' · Enregistré' : ''}
+                            </div>
+                          </div>
+                          <div className="font-mono font-bold text-sm text-blue-950 tabular-nums shrink-0">
+                            {avg !== null ? `${avg.toFixed(2)}/20` : '—'}
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2">
+                          {Array.from({ length: evalSlotCount }).map((_, idx) => {
+                            const cellVal = draft.slots[idx] ?? '';
+                            const cellStatus = parseNoteSlot(cellVal);
+                            return (
+                              <div key={`msc-${sub.id}-${idx}`}>
+                                <label className="block text-[10px] font-semibold text-slate-500 mb-0.5">
+                                  Note {idx + 1}
+                                </label>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  disabled={isReadOnly}
+                                  value={cellVal}
+                                  onChange={(e) =>
+                                    updateDraftSlot(selectedStudentId, sub.id, idx, e.target.value)
+                                  }
+                                  placeholder="—"
+                                  className={`w-full px-2 py-1.5 text-sm font-mono tabular-nums text-center border rounded-md disabled:bg-slate-100 ${
+                                    cellStatus === 'invalid'
+                                      ? 'border-red-500 bg-red-50 text-red-700'
+                                      : 'border-slate-300'
+                                  }`}
+                                />
+                              </div>
+                            );
+                          })}
+                        </div>
+
+                        <input
+                          type="text"
+                          disabled={isReadOnly}
+                          value={draft.appreciation}
+                          onChange={(e) =>
+                            updateDraftField(selectedStudentId, sub.id, 'appreciation', e.target.value)
+                          }
+                          placeholder="Appréciation enseignant..."
+                          className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-md disabled:bg-slate-100"
+                        />
+
+                        {selectedPeriod?.status === 'verrouille' && (
+                          <input
+                            type="text"
+                            disabled={isReadOnly}
+                            value={draft.overrideReason}
+                            onChange={(e) =>
+                              updateDraftField(selectedStudentId, sub.id, 'overrideReason', e.target.value)
+                            }
+                            placeholder={batchOverrideReason ? 'Utilise motif global' : 'Motif de correction (RG-08)...'}
+                            className="w-full px-2.5 py-1.5 text-xs border border-amber-300 rounded-md disabled:bg-slate-100"
+                          />
+                        )}
+
+                        {!isReadOnly && (
+                          <div className="flex items-center justify-end gap-2">
+                            {existing && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => handleDeleteGrade(selectedStudentId, sub.id)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-red-700 border border-red-200 rounded-md hover:bg-red-50"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                                Supprimer
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              disabled={busy || hasInvalid || validNumbers.length === 0}
+                              onClick={() => handleSaveGrade(selectedStudentId, sub.id)}
+                              className="px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 disabled:opacity-45 rounded-md"
+                            >
+                              Enregistrer
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
                     <th className="py-3 px-4 font-semibold">Matière & Coeff.</th>
@@ -1425,6 +1696,7 @@ export const SecretariatView: React.FC<{
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </div>
       )}
@@ -1432,9 +1704,9 @@ export const SecretariatView: React.FC<{
       {/* TAB 2: BULLETINS & LIVRAISON */}
       {activeTab === 'bulletins' && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+          <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <FileSpreadsheet className="w-4 h-4 text-blue-900" />
+              <FileSpreadsheet className="w-4 h-4 text-blue-900 shrink-0" />
               <h2 className="font-display text-base font-bold text-slate-900">
                 Bulletins · {selectedClass?.name} ({selectedPeriod?.label})
               </h2>
@@ -1445,7 +1717,7 @@ export const SecretariatView: React.FC<{
           </div>
 
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm min-w-[680px]">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
                   <th className="py-3 px-4 font-semibold">Rang</th>
@@ -1570,8 +1842,8 @@ export const SecretariatView: React.FC<{
       {activeTab === 'classes' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-6 space-y-4">
-              <div className="flex items-center justify-between">
+            <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="font-display text-base font-bold text-slate-900">
                   Classes ({state.classes.length})
                 </h2>
@@ -1579,7 +1851,7 @@ export const SecretariatView: React.FC<{
                   <button
                     type="button"
                     onClick={() => setShowClassModal(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-900 rounded-lg"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-900 rounded-lg whitespace-nowrap"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     Nouvelle classe
@@ -1593,13 +1865,13 @@ export const SecretariatView: React.FC<{
                   ).length;
                   return (
                     <div key={cls.id} className="py-3 flex items-center justify-between gap-4">
-                      <div>
+                      <div className="min-w-0">
                         <div className="font-semibold text-slate-900 text-sm">{cls.name}</div>
                         <div className="text-xs text-slate-500">
                           {cls.cycle} · {cls.program} · {cls.room} · PP : {cls.headTeacher}
                         </div>
                       </div>
-                      <div className="font-mono text-xs font-semibold text-slate-800 tabular-nums">
+                      <div className="font-mono text-xs font-semibold text-slate-800 tabular-nums shrink-0">
                         {count} / {cls.capacity}
                       </div>
                     </div>
@@ -1608,17 +1880,17 @@ export const SecretariatView: React.FC<{
               </div>
             </div>
 
-            <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-6 space-y-4">
-              <div className="flex items-center justify-between">
+            <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="font-display text-base font-bold text-slate-900 flex items-center gap-2">
-                  <BookOpen className="w-4 h-4 text-blue-900" />
+                  <BookOpen className="w-4 h-4 text-blue-900 shrink-0" />
                   Matières & Coefficients ({state.subjects.length})
                 </h2>
                 {!isReadOnly && (
                   <button
                     type="button"
                     onClick={() => setShowSubjectModal(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-900 rounded-lg"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-900 rounded-lg whitespace-nowrap"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     Ajouter matière
@@ -1628,7 +1900,7 @@ export const SecretariatView: React.FC<{
               <div className="max-h-80 overflow-y-auto divide-y divide-slate-100 pr-1">
                 {state.subjects.map((sub) => (
                   <div key={sub.id} className="py-2.5 flex items-center justify-between gap-3">
-                    <div>
+                    <div className="min-w-0">
                       <div className="text-sm font-medium text-slate-900">
                         <span className="font-mono text-xs text-slate-500 mr-1.5">
                           [{sub.code}]
@@ -1649,12 +1921,12 @@ export const SecretariatView: React.FC<{
           </div>
 
           {/* Student Class Assignment & Card Reprint (RF-SEC-01, RF-SEC-09) */}
-          <div className="bg-white border border-slate-200 rounded-xl p-6">
+          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-6">
             <h2 className="font-display text-base font-bold text-slate-900 mb-4">
               Affectation des élèves aux classes & Réimpression de cartes
             </h2>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+            <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+              <table className="w-full text-sm min-w-[580px]">
                 <thead>
                   <tr className="border-b border-slate-200 text-xs text-slate-500 text-left">
                     <th className="py-2 font-medium">Élève</th>
@@ -1711,7 +1983,7 @@ export const SecretariatView: React.FC<{
       {/* TAB 4: PERIODES */}
       {activeTab === 'periodes' && (
         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-200">
+          <div className="px-4 sm:px-6 py-4 border-b border-slate-200">
             <h2 className="font-display text-base font-bold text-slate-900">
               Périodes d’évaluation ({state.settings.periodMode})
             </h2>
@@ -1723,7 +1995,7 @@ export const SecretariatView: React.FC<{
             {state.periods.map((p) => (
               <div
                 key={p.id}
-                className="px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                className="px-4 sm:px-6 py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
               >
                 <div>
                   <div className="flex items-center gap-2 font-semibold text-slate-900">
@@ -1779,8 +2051,8 @@ export const SecretariatView: React.FC<{
 
       {/* DELIVER BULLETIN MODAL */}
       {deliverModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 space-y-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 my-auto">
             <h3 className="font-display text-lg font-bold text-slate-900">
               Confirmation de remise de bulletin
             </h3>
@@ -1818,10 +2090,10 @@ export const SecretariatView: React.FC<{
 
       {/* CREATE CLASS MODAL */}
       {showClassModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <form
             onSubmit={handleCreateClass}
-            className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 space-y-4"
+            className="bg-white border border-slate-200 rounded-xl max-w-md w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 my-auto"
           >
             <h3 className="font-display text-lg font-bold text-slate-900">Nouvelle classe</h3>
             <div className="space-y-3">
@@ -1833,7 +2105,7 @@ export const SecretariatView: React.FC<{
                 onChange={(e) => setClassForm({ ...classForm, name: e.target.value })}
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
               />
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <select
                   value={classForm.cycle}
                   onChange={(e) => setClassForm({ ...classForm, cycle: e.target.value as SchoolCycle })}
@@ -1890,14 +2162,14 @@ export const SecretariatView: React.FC<{
 
       {/* CREATE SUBJECT MODAL */}
       {showSubjectModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <form
             onSubmit={handleCreateSubject}
-            className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-6 space-y-4"
+            className="bg-white border border-slate-200 rounded-xl max-w-md w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 my-auto"
           >
             <h3 className="font-display text-lg font-bold text-slate-900">Nouvelle matière</h3>
             <div className="space-y-3">
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <input
                   type="text"
                   required
@@ -1912,10 +2184,10 @@ export const SecretariatView: React.FC<{
                   placeholder="Intitulé (Philosophie)"
                   value={subjectForm.name}
                   onChange={(e) => setSubjectForm({ ...subjectForm, name: e.target.value })}
-                  className="col-span-2 px-3 py-2 text-sm border border-slate-300 rounded-lg"
+                  className="sm:col-span-2 px-3 py-2 text-sm border border-slate-300 rounded-lg"
                 />
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <select
                   value={subjectForm.cycle}
                   onChange={(e) =>
@@ -1939,7 +2211,7 @@ export const SecretariatView: React.FC<{
                   ))}
                 </select>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <input
                   type="number"
                   min={1}
@@ -1959,7 +2231,7 @@ export const SecretariatView: React.FC<{
                   onChange={(e) =>
                     setSubjectForm({ ...subjectForm, teacherName: e.target.value })
                   }
-                  className="col-span-2 px-3 py-2 text-sm border border-slate-300 rounded-lg"
+                  className="sm:col-span-2 px-3 py-2 text-sm border border-slate-300 rounded-lg"
                 />
               </div>
             </div>

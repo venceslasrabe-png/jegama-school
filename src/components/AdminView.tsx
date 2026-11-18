@@ -296,17 +296,17 @@ export const AdminView: React.FC<{
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="font-display text-2xl font-bold text-slate-900">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="font-display text-xl sm:text-2xl font-bold text-slate-900">
             Administration & Journal d’audit
           </h1>
-          <p className="text-sm text-slate-500 mt-0.5">
+          <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
             Années académiques, archives Excel, paramètres généraux, comptes et sauvegardes.
           </p>
         </div>
 
-        <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg self-start overflow-x-auto max-w-full">
+        <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg self-start w-full sm:w-auto overflow-x-auto max-w-full">
           <button
             type="button"
             onClick={() => setActiveTab('params')}
@@ -379,7 +379,7 @@ export const AdminView: React.FC<{
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <form
             onSubmit={handleSaveSettings}
-            className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-6 space-y-4"
+            className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-4"
           >
             <h2 className="font-display text-base font-bold text-slate-900">
               Configuration de l’établissement & Sécurité
@@ -497,7 +497,7 @@ export const AdminView: React.FC<{
             )}
           </form>
 
-          <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-6 space-y-5">
+          <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-5 h-fit">
             <div>
               <h2 className="font-display text-base font-bold text-slate-900">
                 Clôture annuelle & Sauvegardes
@@ -573,7 +573,7 @@ export const AdminView: React.FC<{
         <div className="space-y-6">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* Active year rollover card */}
-            <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-between gap-4">
+            <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col justify-between gap-4">
               <div>
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">
@@ -590,7 +590,7 @@ export const AdminView: React.FC<{
                   Lorsque l’année académique est terminée, la création d’une nouvelle année archive automatiquement les résultats, encaissements et assiduités de{' '}
                   <span className="font-semibold">{state.settings.currentAcademicYear}</span>, puis réinitialise les périodes pour le nouvel exercice tout en conservant les fiches élèves pour réinscription rapide.
                 </p>
-                <div className="grid grid-cols-3 gap-3 mt-4 pt-4 border-t border-slate-100 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4 pt-4 border-t border-slate-100 text-xs">
                   <div>
                     <div className="text-slate-500">Élèves inscrits</div>
                     <div className="font-mono font-bold text-slate-900 text-sm">
@@ -625,14 +625,14 @@ export const AdminView: React.FC<{
                   }}
                   className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-[#0B1933] bg-[#E5A923] hover:bg-[#d89b18] rounded-lg transition-colors"
                 >
-                  <CalendarPlus className="w-4 h-4" />
+                  <CalendarPlus className="w-4 h-4 shrink-0" />
                   Créer une nouvelle année académique
                 </button>
               )}
             </div>
 
             {/* Excel Import for past years */}
-            <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-6 flex flex-col justify-between gap-4">
+            <div className="lg:col-span-6 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 flex flex-col justify-between gap-4">
               <div>
                 <div className="flex items-center gap-2 text-slate-900">
                   <FileSpreadsheet className="w-5 h-5 text-[#0B1933]" />
@@ -674,7 +674,7 @@ export const AdminView: React.FC<{
 
           {/* Archived Years List */}
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
               <div>
                 <h2 className="font-display text-base font-bold text-slate-900">
                   Archives des années académiques ({state.archivedYears.length})
@@ -686,12 +686,12 @@ export const AdminView: React.FC<{
             </div>
 
             {state.archivedYears.length === 0 ? (
-              <div className="p-10 text-center text-sm text-slate-500">
+              <div className="p-6 sm:p-10 text-center text-sm text-slate-500">
                 Aucune année académique archivée pour le moment. Vous pouvez importer un fichier Excel d’une année précédente ou clôturer l’année en cours via « Créer une nouvelle année académique ».
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm min-w-[680px]">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
                       <th className="py-3 px-4 font-semibold">Année académique</th>
@@ -799,56 +799,96 @@ export const AdminView: React.FC<{
       {activeTab === 'users' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           <div className="lg:col-span-8 bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
-                  <th className="py-3 px-4 font-semibold">Agent & Identifiant</th>
-                  <th className="py-3 px-4 font-semibold">Profil</th>
-                  <th className="py-3 px-4 font-semibold">Dernière connexion</th>
-                  <th className="py-3 px-4 font-semibold text-right">Statut</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {state.users.map((u) => (
-                  <tr key={u.id}>
-                    <td className="py-3 px-4">
-                      <div className="font-semibold text-slate-900">{u.fullName}</div>
-                      <div className="text-xs font-mono text-slate-500">{u.username}</div>
-                    </td>
-                    <td className="py-3 px-4 text-xs text-slate-700">{ROLE_LABELS[u.role]}</td>
-                    <td className="py-3 px-4 font-mono text-xs text-slate-500">
-                      {formatDateTimeFr(u.lastLogin)}
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      {!isReadOnly ? (
-                        <button
-                          type="button"
-                          disabled={busy || u.id === session.id}
-                          onClick={() => handleToggleUser(u.id)}
-                          className={`px-2.5 py-1 text-xs font-semibold rounded border ${
-                            u.active
-                              ? 'border-emerald-200 text-emerald-700 bg-emerald-50'
-                              : 'border-red-200 text-red-700 bg-red-50'
-                          }`}
-                        >
-                          {u.active ? 'Actif' : 'Désactivé'}
-                        </button>
-                      ) : (
-                        <span className="text-xs font-medium text-slate-600">
-                          {u.active ? 'Actif' : 'Désactivé'}
-                        </span>
-                      )}
-                    </td>
+            {/* Mobile Cards */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {state.users.map((u) => (
+                <div key={u.id} className="p-4 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="font-semibold text-slate-900 text-sm truncate">{u.fullName}</div>
+                    <div className="text-xs font-mono text-slate-500">
+                      {u.username} · {ROLE_LABELS[u.role]}
+                    </div>
+                    <div className="text-[11px] font-mono text-slate-400 mt-0.5">
+                      Dernière connexion : {formatDateTimeFr(u.lastLogin)}
+                    </div>
+                  </div>
+                  <div className="shrink-0">
+                    {!isReadOnly ? (
+                      <button
+                        type="button"
+                        disabled={busy || u.id === session.id}
+                        onClick={() => handleToggleUser(u.id)}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded border ${
+                          u.active
+                            ? 'border-emerald-200 text-emerald-700 bg-emerald-50'
+                            : 'border-red-200 text-red-700 bg-red-50'
+                        }`}
+                      >
+                        {u.active ? 'Actif' : 'Désactivé'}
+                      </button>
+                    ) : (
+                      <span className="text-xs font-medium text-slate-600">
+                        {u.active ? 'Actif' : 'Désactivé'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Desktop Table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
+                    <th className="py-3 px-4 font-semibold">Agent & Identifiant</th>
+                    <th className="py-3 px-4 font-semibold">Profil</th>
+                    <th className="py-3 px-4 font-semibold">Dernière connexion</th>
+                    <th className="py-3 px-4 font-semibold text-right">Statut</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {state.users.map((u) => (
+                    <tr key={u.id}>
+                      <td className="py-3 px-4">
+                        <div className="font-semibold text-slate-900">{u.fullName}</div>
+                        <div className="text-xs font-mono text-slate-500">{u.username}</div>
+                      </td>
+                      <td className="py-3 px-4 text-xs text-slate-700">{ROLE_LABELS[u.role]}</td>
+                      <td className="py-3 px-4 font-mono text-xs text-slate-500">
+                        {formatDateTimeFr(u.lastLogin)}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        {!isReadOnly ? (
+                          <button
+                            type="button"
+                            disabled={busy || u.id === session.id}
+                            onClick={() => handleToggleUser(u.id)}
+                            className={`px-2.5 py-1 text-xs font-semibold rounded border ${
+                              u.active
+                                ? 'border-emerald-200 text-emerald-700 bg-emerald-50'
+                                : 'border-red-200 text-red-700 bg-red-50'
+                            }`}
+                          >
+                            {u.active ? 'Actif' : 'Désactivé'}
+                          </button>
+                        ) : (
+                          <span className="text-xs font-medium text-slate-600">
+                            {u.active ? 'Actif' : 'Désactivé'}
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
 
           {!isReadOnly && (
             <form
               onSubmit={handleCreateUser}
-              className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-6 space-y-3 h-fit"
+              className="lg:col-span-4 bg-white border border-slate-200 rounded-xl p-4 sm:p-6 space-y-3 h-fit"
             >
               <h3 className="font-display text-base font-bold text-slate-900 flex items-center gap-2">
                 <Plus className="w-4 h-4 text-blue-900" />
@@ -939,10 +979,10 @@ export const AdminView: React.FC<{
 
       {/* MODAL: CREATE NEW ACADEMIC YEAR (WITH AUTOMATIC ARCHIVAL) */}
       {showNewYearModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
           <form
             onSubmit={handleCreateAcademicYear}
-            className="bg-white border border-slate-200 rounded-xl max-w-lg w-full p-6 space-y-4 my-auto"
+            className="bg-white border border-slate-200 rounded-xl max-w-lg w-full max-h-[92vh] overflow-y-auto p-4 sm:p-6 space-y-4 my-auto"
           >
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <h3 className="font-display text-lg font-bold text-slate-900">
@@ -1021,7 +1061,7 @@ export const AdminView: React.FC<{
               </div>
             </div>
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+            <div className="flex flex-wrap justify-end gap-2 pt-3 border-t border-slate-200">
               <button
                 type="button"
                 onClick={() => setShowNewYearModal(false)}
@@ -1032,7 +1072,7 @@ export const AdminView: React.FC<{
               <button
                 type="submit"
                 disabled={busy}
-                className="px-4 py-2 text-xs font-bold text-[#0B1933] bg-[#E5A923] hover:bg-[#d89b18] rounded-lg"
+                className="px-4 py-2 text-xs font-bold text-[#0B1933] bg-[#E5A923] hover:bg-[#d89b18] rounded-lg text-center"
               >
                 {busy ? 'Archivage en cours...' : `Archiver ${state.settings.currentAcademicYear} & Ouvrir ${newYearForm.newAcademicYear}`}
               </button>
@@ -1043,10 +1083,10 @@ export const AdminView: React.FC<{
 
       {/* MODAL: IMPORT EXCEL ARCHIVE */}
       {showImportModal && importDraft && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4 overflow-y-auto">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
           <form
             onSubmit={handleConfirmExcelImport}
-            className="bg-white border border-slate-200 rounded-xl max-w-3xl w-full p-6 space-y-4 my-auto"
+            className="bg-white border border-slate-200 rounded-xl max-w-3xl w-full max-h-[92vh] overflow-y-auto p-4 sm:p-6 space-y-4 my-auto"
           >
             <div className="flex items-center justify-between border-b border-slate-200 pb-3">
               <div>
@@ -1100,8 +1140,8 @@ export const AdminView: React.FC<{
               </div>
             </div>
 
-            <div className="border border-slate-200 rounded-lg overflow-hidden max-h-64 overflow-y-auto">
-              <table className="w-full text-xs">
+            <div className="border border-slate-200 rounded-lg overflow-auto max-h-64">
+              <table className="w-full text-xs min-w-[540px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-left">
                     <th className="py-2 px-3 font-semibold">ID Carte</th>
@@ -1159,8 +1199,8 @@ export const AdminView: React.FC<{
 
       {/* MODAL: VIEW ARCHIVED YEAR DETAILS */}
       {viewingArchive && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white border border-slate-200 rounded-xl max-w-5xl w-full p-6 space-y-4 my-auto">
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+          <div className="bg-white border border-slate-200 rounded-xl max-w-5xl w-full max-h-[92vh] overflow-y-auto p-4 sm:p-6 space-y-4 my-auto">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
               <div>
                 <h3 className="font-display text-lg font-bold text-slate-900">

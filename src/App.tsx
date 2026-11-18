@@ -363,24 +363,24 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 flex flex-col">
       {/* Horizontal Deep-Navy & Gold Institutional Top Bar */}
       <header className="no-print bg-[#0B1933] text-white border-b border-white/10 sticky top-0 z-40 shrink-0">
-        <div className="max-w-[1440px] mx-auto px-4 sm:px-6">
+        <div className="max-w-[1440px] mx-auto px-3 sm:px-6">
           {/* Top row: Brand, Profile & Logout */}
-          <div className="h-16 flex items-center justify-between gap-4 border-b border-white/10">
-            <div className="flex items-center gap-3 min-w-0">
+          <div className="h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4 lg:border-b lg:border-white/10">
+            <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(true)}
-                aria-label="Menu"
-                className="lg:hidden p-2 -ml-2 text-slate-200 hover:text-white"
+                aria-label="Ouvrir le menu"
+                className="lg:hidden p-2 -ml-1.5 text-slate-200 hover:text-white rounded-lg hover:bg-white/10 shrink-0"
               >
                 <Menu className="w-5 h-5" />
               </button>
               <button
                 type="button"
                 onClick={() => setActiveMenu(session.role === 'parent' ? 'parent' : 'dashboard')}
-                className="flex items-center gap-3 text-left shrink-0"
+                className="flex items-center gap-2.5 sm:gap-3 text-left min-w-0"
               >
-                <div className="w-10 h-10 rounded-xl bg-white p-1 flex items-center justify-center shrink-0">
+                <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-white p-1 flex items-center justify-center shrink-0">
                   <img
                     src={SCHOOL_EMBLEM_URL}
                     alt="Logo JEGAMA SCHOOL"
@@ -388,18 +388,21 @@ export default function App() {
                     className="w-full h-full object-contain"
                   />
                 </div>
-                <div>
-                  <div className="font-display text-sm sm:text-base font-extrabold tracking-tight text-white whitespace-nowrap">
+                <div className="min-w-0">
+                  <div className="font-display text-sm sm:text-base font-extrabold tracking-tight text-white truncate">
                     JEGAMA SCHOOL
                   </div>
-                  <div className="text-[11px] font-medium text-[#E5A923] whitespace-nowrap">
+                  <div className="text-[11px] font-medium text-[#E5A923] truncate hidden sm:block">
                     Gestion Scolaire · Mpita-Wharf, Pointe-Noire
+                  </div>
+                  <div className="text-[11px] font-medium text-[#E5A923] truncate sm:hidden">
+                    {ROLE_LABELS[session.role]}
                   </div>
                 </div>
               </button>
             </div>
 
-            <div className="flex items-center gap-4 shrink-0">
+            <div className="flex items-center gap-2 sm:gap-4 shrink-0">
               <div className="hidden md:flex items-center gap-3 px-3 py-1.5 rounded-lg bg-[#102347] border border-white/10">
                 <div className="text-right">
                   <div className="text-xs font-semibold text-white whitespace-nowrap">
@@ -417,10 +420,11 @@ export default function App() {
               <button
                 type="button"
                 onClick={handleLogout}
-                className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-white border border-white/20 rounded-lg hover:bg-white/10 transition-colors whitespace-nowrap shrink-0"
+                aria-label="Déconnexion"
+                className="inline-flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-3.5 py-2 text-xs font-semibold text-white border border-white/20 rounded-lg hover:bg-white/10 transition-colors whitespace-nowrap shrink-0"
               >
                 <LogOut className="w-3.5 h-3.5 text-[#E5A923]" />
-                Déconnexion
+                <span className="hidden xs:inline sm:inline">Déconnexion</span>
               </button>
             </div>
           </div>
@@ -468,7 +472,7 @@ export default function App() {
             className="fixed inset-0 bg-slate-900/60"
             onClick={() => setMobileMenuOpen(false)}
           />
-          <aside className="relative w-72 max-w-full h-full z-10 overflow-y-auto">
+          <aside className="relative w-72 max-w-[85vw] h-full z-10 overflow-y-auto shadow-2xl">
             {renderSidebarContent(true)}
           </aside>
         </div>
@@ -476,9 +480,9 @@ export default function App() {
 
       {/* Direction générale Read-Only Banner (Section 6) */}
       {session.role === 'direction' && (
-        <div className="no-print bg-amber-50 border-b border-amber-200 px-4 sm:px-6 py-2.5">
-          <div className="max-w-[1440px] mx-auto flex items-center gap-2 text-xs font-semibold text-amber-900">
-            <Lock className="w-4 h-4 text-amber-700 shrink-0" />
+        <div className="no-print bg-amber-50 border-b border-amber-200 px-3 sm:px-6 py-2">
+          <div className="max-w-[1440px] mx-auto flex items-start sm:items-center gap-2 text-xs font-semibold text-amber-900">
+            <Lock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5 sm:mt-0" />
             <span>
               Lecture seule — Direction générale : consultation globale de toutes les rubriques autorisée sans droit de modification.
             </span>
@@ -486,7 +490,7 @@ export default function App() {
         </div>
       )}
 
-      <main className="flex-1 p-4 sm:p-8 max-w-[1440px] w-full mx-auto">
+      <main className="flex-1 px-3 py-4 sm:p-6 lg:p-8 max-w-[1440px] w-full mx-auto min-w-0">
           {loadError && (
             <div className="mb-6 p-4 rounded-lg border border-red-200 bg-red-50 text-xs font-medium text-red-800">
               {loadError}
