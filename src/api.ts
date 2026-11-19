@@ -4,6 +4,7 @@ import type {
   AttendanceLog,
   AuditLog,
   Bulletin,
+  CycleHourlyRate,
   DashboardSummary,
   EvaluationPeriod,
   FeeGridItem,
@@ -16,6 +17,9 @@ import type {
   SchoolSettings,
   Student,
   Subject,
+  Teacher,
+  TeacherHourLog,
+  TeacherPayslip,
   UserAccount,
   UserRole,
 } from './types';
@@ -29,6 +33,10 @@ export interface AppState {
   subjects: Subject[];
   parents: ParentTutor[];
   students: Student[];
+  teachers: Teacher[];
+  hourlyRates: CycleHourlyRate[];
+  teacherHourLogs: TeacherHourLog[];
+  teacherPayslips: TeacherPayslip[];
   paymentNotifications: PaymentNotification[];
   payments: Payment[];
   attendanceLogs: AttendanceLog[];

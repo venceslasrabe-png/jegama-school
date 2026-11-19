@@ -4,10 +4,15 @@ import type {
   AttendanceLog,
   AuditLog,
   Bulletin,
+  CycleHourlyRate,
   DashboardSummary,
   EvaluationPeriod,
+  PayslipPaymentMethod,
   SchoolDatabase,
   Student,
+  Teacher,
+  TeacherHourLog,
+  TeacherPayslip,
   UserRole,
 } from '../types';
 
@@ -41,12 +46,507 @@ function isoDaysAgo(days: number, hh: number, mm: number): { iso: string; dateSt
   return { iso: d.toISOString(), dateStr: `${y}-${m}-${day}` };
 }
 
+export function getCurrentMonthStr(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+export function formatMonthLabelFr(monthStr: string): string {
+  const match = monthStr.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return monthStr;
+  const year = Number(match[1]);
+  const monthIdx = Number(match[2]) - 1;
+  const months = [
+    'Janvier',
+    'Février',
+    'Mars',
+    'Avril',
+    'Mai',
+    'Juin',
+    'Juillet',
+    'Août',
+    'Septembre',
+    'Octobre',
+    'Novembre',
+    'Décembre',
+  ];
+  return `${months[monthIdx] || match[2]} ${year}`;
+}
+
+export function createSeedHourlyRates(): CycleHourlyRate[] {
+  return [
+    {
+      id: 'rate-mat-cg',
+      cycle: 'Maternelle',
+      program: 'Congolais',
+      baseHourlyRateFcfa: 3500,
+      overtimeHourlyRateFcfa: 4500,
+      headTeacherMonthlyBonusFcfa: 20000,
+    },
+    {
+      id: 'rate-pri-cg',
+      cycle: 'Primaire',
+      program: 'Congolais',
+      baseHourlyRateFcfa: 4000,
+      overtimeHourlyRateFcfa: 5000,
+      headTeacherMonthlyBonusFcfa: 25000,
+    },
+    {
+      id: 'rate-pri-fr',
+      cycle: 'Primaire',
+      program: 'Français',
+      baseHourlyRateFcfa: 5000,
+      overtimeHourlyRateFcfa: 6250,
+      headTeacherMonthlyBonusFcfa: 30000,
+    },
+    {
+      id: 'rate-col-cg',
+      cycle: 'Collège',
+      program: 'Congolais',
+      baseHourlyRateFcfa: 5500,
+      overtimeHourlyRateFcfa: 7000,
+      headTeacherMonthlyBonusFcfa: 35000,
+    },
+    {
+      id: 'rate-col-fr',
+      cycle: 'Collège',
+      program: 'Français',
+      baseHourlyRateFcfa: 6500,
+      overtimeHourlyRateFcfa: 8000,
+      headTeacherMonthlyBonusFcfa: 40000,
+    },
+    {
+      id: 'rate-lyg-cg',
+      cycle: 'Lycée Général',
+      program: 'Congolais',
+      baseHourlyRateFcfa: 7000,
+      overtimeHourlyRateFcfa: 8750,
+      headTeacherMonthlyBonusFcfa: 40000,
+    },
+    {
+      id: 'rate-lyg-fr',
+      cycle: 'Lycée Général',
+      program: 'Français',
+      baseHourlyRateFcfa: 8000,
+      overtimeHourlyRateFcfa: 10000,
+      headTeacherMonthlyBonusFcfa: 45000,
+    },
+    {
+      id: 'rate-lyt-cg',
+      cycle: 'Lycée Technique',
+      program: 'Congolais',
+      baseHourlyRateFcfa: 7500,
+      overtimeHourlyRateFcfa: 9500,
+      headTeacherMonthlyBonusFcfa: 45000,
+    },
+  ];
+}
+
+export function createSeedTeachers(): Teacher[] {
+  return [
+    {
+      id: 'tch-1',
+      matricule: 'ENS-26-001',
+      firstName: 'Sylvie',
+      lastName: 'KOUBEMBA',
+      gender: 'F',
+      phone: '+242 06 621 14 08',
+      email: 's.koubemba@jegama-school.cg',
+      address: 'Mpita, Pointe-Noire',
+      photoUrl: '',
+      specialty: 'Éveil, Langage & Pré-écriture',
+      diploma: 'Licence Sciences de l’Éducation',
+      cycles: ['Maternelle'],
+      programs: ['Congolais'],
+      contractType: 'Permanent',
+      hourlyRateFcfa: 3500,
+      weeklyHoursQuota: 22,
+      baseBonusFcfa: 0,
+      cnssRatePercent: 0,
+      hireDate: '2022-09-10',
+      bankOrMobileAccount: 'MTN MoMo +242 06 621 14 08',
+      status: 'actif',
+    },
+    {
+      id: 'tch-2',
+      matricule: 'ENS-26-002',
+      firstName: 'Patrick',
+      lastName: 'MAMPOUYA',
+      gender: 'M',
+      phone: '+242 05 512 88 30',
+      email: 'p.mampouya@jegama-school.cg',
+      address: 'Centre-ville, Pointe-Noire',
+      photoUrl: '',
+      specialty: 'Français & Mathématiques (CM2)',
+      diploma: 'CAPES Enseignement Primaire',
+      cycles: ['Primaire'],
+      programs: ['Français', 'Congolais'],
+      contractType: 'Permanent',
+      hourlyRateFcfa: 5000,
+      weeklyHoursQuota: 24,
+      baseBonusFcfa: 0,
+      cnssRatePercent: 0,
+      hireDate: '2021-09-01',
+      bankOrMobileAccount: 'BGFI Bank · CG04 0012 4481',
+      status: 'actif',
+    },
+    {
+      id: 'tch-3',
+      matricule: 'ENS-26-003',
+      firstName: 'Mireille',
+      lastName: 'NKOUKA',
+      gender: 'F',
+      phone: '+242 06 845 33 19',
+      email: 'm.nkouka@jegama-school.cg',
+      address: 'Tié-Tié, Pointe-Noire',
+      photoUrl: '',
+      specialty: 'Français & Lettres Modernes',
+      diploma: 'Master Lettres Modernes',
+      cycles: ['Collège'],
+      programs: ['Congolais'],
+      contractType: 'Permanent',
+      hourlyRateFcfa: 5500,
+      weeklyHoursQuota: 18,
+      baseBonusFcfa: 0,
+      cnssRatePercent: 0,
+      hireDate: '2023-09-05',
+      bankOrMobileAccount: 'Airtel Money +242 05 845 33 19',
+      status: 'actif',
+    },
+    {
+      id: 'tch-4',
+      matricule: 'ENS-26-004',
+      firstName: 'Alain',
+      lastName: 'MAKOSSO',
+      gender: 'M',
+      phone: '+242 06 702 54 61',
+      email: 'a.makosso@jegama-school.cg',
+      address: 'Côte Sauvage, Pointe-Noire',
+      photoUrl: '',
+      specialty: 'Mathématiques Spécialité',
+      diploma: 'Master Mathématiques Appliquées',
+      cycles: ['Lycée Général', 'Lycée Technique'],
+      programs: ['Français', 'Congolais'],
+      contractType: 'Permanent',
+      hourlyRateFcfa: 8000,
+      weeklyHoursQuota: 20,
+      baseBonusFcfa: 0,
+      cnssRatePercent: 0,
+      hireDate: '2020-09-14',
+      bankOrMobileAccount: 'Ecobank · CG08 7731 0092',
+      status: 'actif',
+    },
+    {
+      id: 'tch-5',
+      matricule: 'ENS-26-005',
+      firstName: 'Sandrine',
+      lastName: 'BOUANGA',
+      gender: 'F',
+      phone: '+242 06 519 77 42',
+      email: 's.bouanga@jegama-school.cg',
+      address: 'Loandjili, Pointe-Noire',
+      photoUrl: '',
+      specialty: 'Physique-Chimie',
+      diploma: 'Master Physique des Matériaux',
+      cycles: ['Lycée Général', 'Lycée Technique'],
+      programs: ['Français', 'Congolais'],
+      contractType: 'Contractuel',
+      hourlyRateFcfa: 7500,
+      weeklyHoursQuota: 16,
+      baseBonusFcfa: 0,
+      cnssRatePercent: 0,
+      hireDate: '2024-09-09',
+      bankOrMobileAccount: 'MTN MoMo +242 06 519 77 42',
+      status: 'actif',
+    },
+    {
+      id: 'tch-6',
+      matricule: 'ENS-26-006',
+      firstName: 'Thierry',
+      lastName: 'SAMBA',
+      gender: 'M',
+      phone: '+242 06 901 23 11',
+      email: 't.samba@jegama-school.cg',
+      address: 'Mpita-Wharf, Pointe-Noire',
+      photoUrl: '',
+      specialty: 'Électronique Appliquée & Automatismes',
+      diploma: 'Ingénieur Génie Électrique',
+      cycles: ['Lycée Technique'],
+      programs: ['Congolais'],
+      contractType: 'Permanent',
+      hourlyRateFcfa: 7500,
+      weeklyHoursQuota: 18,
+      baseBonusFcfa: 0,
+      cnssRatePercent: 0,
+      hireDate: '2021-10-01',
+      bankOrMobileAccount: 'BGFI Bank · CG04 9981 2015',
+      status: 'actif',
+    },
+    {
+      id: 'tch-7',
+      matricule: 'ENS-26-007',
+      firstName: 'David',
+      lastName: 'OKO',
+      gender: 'M',
+      phone: '+242 05 614 09 75',
+      email: 'd.oko@jegama-school.cg',
+      address: 'Tchibamba, Pointe-Noire',
+      photoUrl: '',
+      specialty: 'Anglais LV1',
+      diploma: 'Licence Langues Étrangères Appliquées',
+      cycles: ['Collège', 'Lycée Général'],
+      programs: ['Congolais', 'Français'],
+      contractType: 'Vacataire',
+      hourlyRateFcfa: 6500,
+      weeklyHoursQuota: 12,
+      baseBonusFcfa: 0,
+      cnssRatePercent: 0,
+      hireDate: '2025-09-15',
+      bankOrMobileAccount: 'Airtel Money +242 05 614 09 75',
+      status: 'actif',
+    },
+  ];
+}
+
+export function getTeacherCumulativeHours(
+  logs: TeacherHourLog[],
+  teacherId: string,
+  month: string
+): number {
+  const total = logs
+    .filter((l) => l.teacherId === teacherId && l.month === month)
+    .reduce((acc, l) => acc + (Number(l.hours) || 0), 0);
+  return Math.round(total * 100) / 100;
+}
+
+export function createSeedTeacherHourLogs(teachers: Teacher[]): TeacherHourLog[] {
+  const month = getCurrentMonthStr();
+  const createdAt = isoDaysAgo(2, 12, 0).iso;
+  const logs: TeacherHourLog[] = [];
+  const sampleDays = ['03', '07', '11', '15'];
+  const extraHours = [2, 4, 0, 6, 2, 4, 0];
+
+  teachers.forEach((teacher, idx) => {
+    const classLabel = `${teacher.cycles[0] || 'Cours'} · ${teacher.specialty.split('&')[0].trim()}`;
+    sampleDays.forEach((day, wIdx) => {
+      logs.push({
+        id: `hlog-${idx + 1}-w${wIdx + 1}`,
+        teacherId: teacher.id,
+        month,
+        date: `${month}-${day}`,
+        hours: teacher.weeklyHoursQuota,
+        classOrSubject: classLabel,
+        notes: `Semaine ${wIdx + 1} · Cours assurés`,
+        recordedBy: 'Mme Nadège Moukoko',
+        createdAt,
+      });
+    });
+
+    const extra = extraHours[idx] || 0;
+    if (extra > 0) {
+      logs.push({
+        id: `hlog-${idx + 1}-extra`,
+        teacherId: teacher.id,
+        month,
+        date: `${month}-18`,
+        hours: extra,
+        classOrSubject: classLabel,
+        notes: 'Séance de renforcement / TP',
+        recordedBy: 'Mme Nadège Moukoko',
+        createdAt,
+      });
+    }
+  });
+
+  return logs;
+}
+
+export function buildTeacherPayslip(params: {
+  id: string;
+  payslipNumber: string;
+  teacher: Teacher;
+  month: string;
+  academicYear: string;
+  regularHours: number;
+  overtimeHours?: number;
+  hourlyRateFcfa?: number;
+  overtimeRateFcfa?: number;
+  bonusesFcfa?: number;
+  bonusDetails?: string;
+  cnssRatePercent?: number;
+  advanceOrOtherDeductionFcfa?: number;
+  deductionDetails?: string;
+  paymentMethod?: PayslipPaymentMethod;
+  status?: TeacherPayslip['status'];
+  createdBy: string;
+  createdAt?: string;
+  paidAt?: string | null;
+  paidBy?: string | null;
+}): TeacherPayslip {
+  const regularHours = Math.max(0, Number(params.regularHours) || 0);
+  const overtimeHours = Math.max(0, Number(params.overtimeHours) || 0);
+  const hourlyRateFcfa = Math.max(0, Number(params.hourlyRateFcfa ?? params.teacher.hourlyRateFcfa) || 0);
+  const overtimeRateFcfa = Math.max(
+    0,
+    Number(params.overtimeRateFcfa ?? hourlyRateFcfa) || 0
+  );
+  const basePayFcfa = Math.round(regularHours * hourlyRateFcfa);
+  const overtimePayFcfa = Math.round(overtimeHours * overtimeRateFcfa);
+  const bonusesFcfa = Math.max(0, Number(params.bonusesFcfa ?? 0) || 0);
+  const grossPayFcfa = basePayFcfa + overtimePayFcfa + bonusesFcfa;
+
+  const cnssRate = Number(params.cnssRatePercent ?? 0) || 0;
+  const cnssDeductionFcfa = Math.round((grossPayFcfa * Math.max(0, cnssRate)) / 100);
+  const advanceOrOtherDeductionFcfa = Math.max(
+    0,
+    Number(params.advanceOrOtherDeductionFcfa) || 0
+  );
+  const netPayFcfa = Math.max(0, grossPayFcfa - cnssDeductionFcfa - advanceOrOtherDeductionFcfa);
+
+  return {
+    id: params.id,
+    payslipNumber: params.payslipNumber,
+    teacherId: params.teacher.id,
+    month: params.month,
+    periodLabel: formatMonthLabelFr(params.month),
+    academicYear: params.academicYear,
+    regularHours,
+    overtimeHours,
+    hourlyRateFcfa,
+    overtimeRateFcfa,
+    basePayFcfa,
+    overtimePayFcfa,
+    bonusesFcfa,
+    bonusDetails:
+      (params.bonusDetails ?? (bonusesFcfa > 0 ? 'Prime / Indemnité' : '')).trim(),
+    grossPayFcfa,
+    cnssDeductionFcfa,
+    advanceOrOtherDeductionFcfa,
+    deductionDetails: (params.deductionDetails || '').trim(),
+    netPayFcfa,
+    paymentMethod: params.paymentMethod || 'Virement',
+    status: params.status || 'valide',
+    createdAt: params.createdAt || new Date().toISOString(),
+    createdBy: params.createdBy,
+    paidAt: params.paidAt ?? null,
+    paidBy: params.paidBy ?? null,
+  };
+}
+
+export function createSeedTeacherPayslips(
+  teachers: Teacher[],
+  hourLogs: TeacherHourLog[] = []
+): TeacherPayslip[] {
+  const month = getCurrentMonthStr();
+  const createdAt = isoDaysAgo(2, 14, 0).iso;
+  const paidAt = isoDaysAgo(1, 10, 30).iso;
+  const specs: Array<{ idx: number; status: TeacherPayslip['status']; method: PayslipPaymentMethod }> = [
+    { idx: 0, status: 'paye', method: 'Mobile Money' },
+    { idx: 1, status: 'paye', method: 'Virement' },
+    { idx: 2, status: 'paye', method: 'Mobile Money' },
+    { idx: 3, status: 'valide', method: 'Virement' },
+    { idx: 4, status: 'valide', method: 'Mobile Money' },
+    { idx: 5, status: 'paye', method: 'Virement' },
+    { idx: 6, status: 'brouillon', method: 'Espèces' },
+  ];
+
+  const list: TeacherPayslip[] = [];
+  for (let i = 0; i < specs.length; i++) {
+    const s = specs[i];
+    const teacher = teachers[s.idx];
+    if (!teacher) continue;
+    const cumulHours =
+      hourLogs.length > 0
+        ? getTeacherCumulativeHours(hourLogs, teacher.id, month)
+        : teacher.weeklyHoursQuota * 4;
+    list.push(
+      buildTeacherPayslip({
+        id: `pay-tch-${i + 1}`,
+        payslipNumber: `PAIE-2026-${String(i + 1).padStart(4, '0')}`,
+        teacher,
+        month,
+        academicYear: '2026-2027',
+        regularHours: cumulHours > 0 ? cumulHours : teacher.weeklyHoursQuota * 4,
+        overtimeHours: 0,
+        bonusesFcfa: 0,
+        cnssRatePercent: 0,
+        paymentMethod: s.method,
+        status: s.status,
+        createdBy: 'Mme Nadège Moukoko',
+        createdAt,
+        paidAt: s.status === 'paye' ? paidAt : null,
+        paidBy: s.status === 'paye' ? 'M. Brice Loubaki' : null,
+      })
+    );
+  }
+  return list;
+}
+
+export function ensureTeacherSeedData(db: SchoolDatabase): SchoolDatabase {
+  if (!Array.isArray(db.hourlyRates) || db.hourlyRates.length === 0) {
+    db.hourlyRates = createSeedHourlyRates();
+  }
+  if (!Array.isArray(db.teachers) || db.teachers.length === 0) {
+    db.teachers = createSeedTeachers();
+  }
+  const hadHourLogs = Array.isArray(db.teacherHourLogs);
+  if (!hadHourLogs) {
+    db.teacherHourLogs = createSeedTeacherHourLogs(db.teachers);
+  }
+  if (!Array.isArray(db.teacherPayslips)) {
+    db.teacherPayslips = createSeedTeacherPayslips(db.teachers, db.teacherHourLogs);
+  } else if (!hadHourLogs) {
+    // Align initial seed payslips cleanly with cumul * hourlyRate formula on first migration
+    db.teacherPayslips = db.teacherPayslips.map((slip) => {
+      if (!slip.id.startsWith('pay-tch-')) return slip;
+      const t = db.teachers.find((item) => item.id === slip.teacherId);
+      if (!t) return slip;
+      const cumul = getTeacherCumulativeHours(db.teacherHourLogs, t.id, slip.month);
+      const totalHours = cumul > 0 ? cumul : slip.regularHours + slip.overtimeHours;
+      return buildTeacherPayslip({
+        id: slip.id,
+        payslipNumber: slip.payslipNumber,
+        teacher: t,
+        month: slip.month,
+        academicYear: slip.academicYear,
+        regularHours: totalHours,
+        overtimeHours: 0,
+        hourlyRateFcfa: t.hourlyRateFcfa,
+        bonusesFcfa: 0,
+        cnssRatePercent: 0,
+        advanceOrOtherDeductionFcfa: 0,
+        paymentMethod: slip.paymentMethod,
+        status: slip.status,
+        createdBy: slip.createdBy,
+        createdAt: slip.createdAt,
+        paidAt: slip.paidAt,
+        paidBy: slip.paidBy,
+      });
+    });
+  }
+  if (!db.counters) {
+    db.counters = { cardSeq: 8, receiptSeq: 6, teacherSeq: db.teachers.length, payslipSeq: db.teacherPayslips.length };
+  }
+  if (typeof db.counters.teacherSeq !== 'number') {
+    db.counters.teacherSeq = db.teachers.length;
+  }
+  if (typeof db.counters.payslipSeq !== 'number') {
+    db.counters.payslipSeq = db.teacherPayslips.length;
+  }
+  return db;
+}
+
 export function createSeedDatabase(): SchoolDatabase {
   const today = getTodayStr();
   const y1 = isoDaysAgo(1, 7, 25);
   const y1Out = isoDaysAgo(1, 13, 5);
   const y2 = isoDaysAgo(2, 7, 38);
   const y2Out = isoDaysAgo(2, 13, 10);
+  const seedTeachers = createSeedTeachers();
+  const seedHourLogs = createSeedTeacherHourLogs(seedTeachers);
+  const seedPayslips = createSeedTeacherPayslips(seedTeachers, seedHourLogs);
 
   return {
     settings: {
@@ -519,6 +1019,10 @@ export function createSeedDatabase(): SchoolDatabase {
         createdAt: '2026-09-10T09:00:00.000Z',
       },
     ],
+    teachers: seedTeachers,
+    hourlyRates: createSeedHourlyRates(),
+    teacherHourLogs: seedHourLogs,
+    teacherPayslips: seedPayslips,
     paymentNotifications: [
       {
         id: 'notif-1',
@@ -925,6 +1429,8 @@ export function createSeedDatabase(): SchoolDatabase {
     counters: {
       cardSeq: 8,
       receiptSeq: 6,
+      teacherSeq: seedTeachers.length,
+      payslipSeq: seedPayslips.length,
     },
   };
 }
@@ -1127,6 +1633,15 @@ export function computeDashboardSummary(db: SchoolDatabase): DashboardSummary {
     (b) => b.deliveryStatus !== 'remis'
   ).length;
 
+  const activeTeachers = (db.teachers || []).filter((t) => t.status === 'actif');
+  const currentMonth = getCurrentMonthStr();
+  const payslips = db.teacherPayslips || [];
+  const monthSlips = payslips.filter((p) => p.month === currentMonth);
+  const monthlyPayrollFcfa = (monthSlips.length > 0 ? monthSlips : payslips).reduce(
+    (sum, p) => sum + p.netPayFcfa,
+    0
+  );
+
   return {
     totalStudents: activeStudents.length,
     activeCards: activeStudents.filter((s) => s.cardStatus === 'active').length,
@@ -1142,6 +1657,8 @@ export function computeDashboardSummary(db: SchoolDatabase): DashboardSummary {
     pendingNotificationsCount,
     unpaidStudentsCount,
     bulletinsToDeliverCount,
+    activeTeachersCount: activeTeachers.length,
+    monthlyPayrollFcfa,
   };
 }
 
@@ -1312,6 +1829,10 @@ export function sanitizeDbForClient(db: SchoolDatabase, actor: ActorContext | nu
         .filter((p) => p.id === actor.id)
         .map(({ accessCode: _c, ...rest }) => rest),
       students: myStudents,
+      teachers: [],
+      hourlyRates: [],
+      teacherHourLogs: [],
+      teacherPayslips: [],
       paymentNotifications: [],
       payments: db.payments.filter((p) => myStudentIds.has(p.studentId)),
       attendanceLogs: db.attendanceLogs.filter((a) => myStudentIds.has(a.studentId)),
@@ -1334,6 +1855,10 @@ export function sanitizeDbForClient(db: SchoolDatabase, actor: ActorContext | nu
     subjects: db.subjects,
     parents: db.parents,
     students: db.students,
+    teachers: db.teachers || [],
+    hourlyRates: db.hourlyRates || [],
+    teacherHourLogs: db.teacherHourLogs || [],
+    teacherPayslips: db.teacherPayslips || [],
     paymentNotifications: db.paymentNotifications,
     payments: db.payments,
     attendanceLogs: db.attendanceLogs,

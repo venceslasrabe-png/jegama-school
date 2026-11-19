@@ -1,16 +1,19 @@
 import fs from 'fs';
 import path from 'path';
 import type { SchoolDatabase } from '../src/types';
-import { createSeedDatabase } from '../src/shared/schoolEngine';
+import { createSeedDatabase, ensureTeacherSeedData } from '../src/shared/schoolEngine';
 
 export {
   addAuditLog,
   buildAcademicYearArchive,
+  buildTeacherPayslip,
   computeDashboardSummary,
   computeMentionFromScore,
   computeStudentBalance,
   createPeriodsForYear,
   createSeedDatabase,
+  ensureTeacherSeedData,
+  getTeacherCumulativeHours,
   recalculateClassBulletins,
   sanitizeDbForClient,
 } from '../src/shared/schoolEngine';
@@ -33,6 +36,7 @@ export function loadDatabase(): SchoolDatabase {
     if (!Array.isArray(parsed.archivedYears)) {
       parsed.archivedYears = [];
     }
+    ensureTeacherSeedData(parsed);
     return parsed;
   } catch {
     const seed = createSeedDatabase();

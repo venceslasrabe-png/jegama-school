@@ -1,9 +1,12 @@
 import {
   addAuditLog,
   buildAcademicYearArchive,
+  buildTeacherPayslip,
   computeStudentBalance,
   createPeriodsForYear,
   createSeedDatabase,
+  ensureTeacherSeedData,
+  getTeacherCumulativeHours,
   recalculateClassBulletins,
   sanitizeDbForClient,
   type ActorContext,
@@ -12,15 +15,20 @@ import type {
   AcademicYearArchive,
   ArchivedStudentRecord,
   AttendanceLog,
+  CycleHourlyRate,
   FeeGridItem,
   Grade,
   ParentTutor,
   Payment,
   PaymentNotification,
+  PayslipPaymentMethod,
+  PayslipStatus,
   SchoolClass,
   SchoolDatabase,
   Student,
   Subject,
+  Teacher,
+  TeacherHourLog,
   UserAccount,
   UserRole,
 } from './types';
@@ -87,6 +95,7 @@ function hydrateDb(raw: SchoolDatabase | null): SchoolDatabase {
   if (!Array.isArray(raw.archivedYears)) {
     raw.archivedYears = [];
   }
+  ensureTeacherSeedData(raw);
   return raw;
 }
 
@@ -1306,6 +1315,392 @@ export async function handleLocalApiRequest<T>(
       'Archive',
       target.academicYear,
       `Archive ${target.academicYear} (${target.source}) supprimée.`
+    );
+    await saveLocalDatabase(db);
+    return { ok: true } as T;
+  }
+
+  // --- CORPS ENSEIGNANTS ---
+  if (method === 'POST' && path === '/api/teachers') {
+    const actor = assertRole(db, session, ['secretariat', 'caisse', 'admin']);
+    const body = parseBody<Partial<Teacher>>(options);
+    if (!body.firstName?.trim() || !body.lastName?.trim() || !body.specialty?.trim()) {
+      throw new Error('Prénom, nom et spécialité sont obligatoires.');
+    }
+    db.counters.teacherSeq = (db.counters.teacherSeq || db.teachers.length) + 1;
+    const matricule = `ENS-26-${String(db.counters.teacherSeq).padStart(3, '0')}`;
+    const teacher: Teacher = {
+      id: `tch-${Date.now()}`,
+      matricule,
+      firstName: body.firstName.trim(),
+      lastName: body.lastName.trim().toUpperCase(),
+      gender: body.gender === 'F' ? 'F' : 'M',
+      phone: (body.phone || '').trim(),
+      email: (body.email || '').trim(),
+      address: (body.address || 'Pointe-Noire').trim(),
+      photoUrl: body.photoUrl || '',
+      specialty: body.specialty.trim(),
+      diploma: (body.diploma || 'Licence / Master').trim(),
+      cycles: Array.isArray(body.cycles) && body.cycles.length > 0 ? body.cycles : ['Collège'],
+      programs: Array.isArray(body.programs) && body.programs.length > 0 ? body.programs : ['Congolais'],
+      contractType: body.contractType || 'Permanent',
+      hourlyRateFcfa: Math.max(0, Number(body.hourlyRateFcfa) || 5500),
+      weeklyHoursQuota: Math.max(0, Number(body.weeklyHoursQuota) || 18),
+      baseBonusFcfa: Math.max(0, Number(body.baseBonusFcfa) || 0),
+      cnssRatePercent: Math.max(0, Number(body.cnssRatePercent ?? 0) || 0),
+      hireDate: body.hireDate || new Date().toISOString().slice(0, 10),
+      bankOrMobileAccount: (body.bankOrMobileAccount || 'Caisse établissement').trim(),
+      status: body.status || 'actif',
+    };
+    db.teachers.unshift(teacher);
+    addAuditLog(
+      db,
+      actor,
+      'Ajout enseignant',
+      'Corps enseignants',
+      teacher.matricule,
+      `${teacher.firstName} ${teacher.lastName} · ${teacher.specialty} (${teacher.hourlyRateFcfa} FCFA/h)`
+    );
+    await saveLocalDatabase(db);
+    return { teacher } as T;
+  }
+
+  const teacherMatch = path.match(/^\/api\/teachers\/([^/]+)$/);
+  if (method === 'PUT' && teacherMatch) {
+    const actor = assertRole(db, session, ['secretariat', 'caisse', 'admin']);
+    const idx = db.teachers.findIndex((t) => t.id === teacherMatch[1]);
+    if (idx < 0) throw new Error('Enseignant introuvable.');
+    const existing = db.teachers[idx];
+    const updates = parseBody<Partial<Teacher>>(options);
+    db.teachers[idx] = {
+      ...existing,
+      firstName: updates.firstName !== undefined ? updates.firstName.trim() : existing.firstName,
+      lastName: updates.lastName !== undefined ? updates.lastName.trim().toUpperCase() : existing.lastName,
+      gender: updates.gender ?? existing.gender,
+      phone: updates.phone !== undefined ? updates.phone.trim() : existing.phone,
+      email: updates.email !== undefined ? updates.email.trim() : existing.email,
+      address: updates.address !== undefined ? updates.address.trim() : existing.address,
+      photoUrl: updates.photoUrl !== undefined ? updates.photoUrl : existing.photoUrl,
+      specialty: updates.specialty !== undefined ? updates.specialty.trim() : existing.specialty,
+      diploma: updates.diploma !== undefined ? updates.diploma.trim() : existing.diploma,
+      cycles: Array.isArray(updates.cycles) && updates.cycles.length > 0 ? updates.cycles : existing.cycles,
+      programs: Array.isArray(updates.programs) && updates.programs.length > 0 ? updates.programs : existing.programs,
+      contractType: updates.contractType ?? existing.contractType,
+      hourlyRateFcfa: updates.hourlyRateFcfa !== undefined ? Math.max(0, Number(updates.hourlyRateFcfa)) : existing.hourlyRateFcfa,
+      weeklyHoursQuota: updates.weeklyHoursQuota !== undefined ? Math.max(0, Number(updates.weeklyHoursQuota)) : existing.weeklyHoursQuota,
+      baseBonusFcfa: updates.baseBonusFcfa !== undefined ? Math.max(0, Number(updates.baseBonusFcfa)) : existing.baseBonusFcfa,
+      cnssRatePercent: updates.cnssRatePercent !== undefined ? Math.max(0, Number(updates.cnssRatePercent)) : existing.cnssRatePercent,
+      hireDate: updates.hireDate ?? existing.hireDate,
+      bankOrMobileAccount: updates.bankOrMobileAccount !== undefined ? updates.bankOrMobileAccount.trim() : existing.bankOrMobileAccount,
+      status: updates.status ?? existing.status,
+    };
+    addAuditLog(
+      db,
+      actor,
+      'Mise à jour fiche enseignant',
+      'Corps enseignants',
+      existing.matricule,
+      `${db.teachers[idx].firstName} ${db.teachers[idx].lastName} · Taux ${db.teachers[idx].hourlyRateFcfa} FCFA/h`
+    );
+    await saveLocalDatabase(db);
+    return { teacher: db.teachers[idx] } as T;
+  }
+
+  if (method === 'DELETE' && teacherMatch) {
+    const actor = assertRole(db, session, ['secretariat', 'admin']);
+    const target = db.teachers.find((t) => t.id === teacherMatch[1]);
+    if (!target) throw new Error('Enseignant introuvable.');
+    db.teachers = db.teachers.filter((t) => t.id !== teacherMatch[1]);
+    addAuditLog(
+      db,
+      actor,
+      'Suppression fiche enseignant',
+      'Corps enseignants',
+      target.matricule,
+      `${target.firstName} ${target.lastName} supprimé du répertoire actif.`
+    );
+    await saveLocalDatabase(db);
+    return { ok: true } as T;
+  }
+
+  const hourlyRateMatch = path.match(/^\/api\/hourly-rates\/([^/]+)$/);
+  if (method === 'PUT' && hourlyRateMatch) {
+    const actor = assertRole(db, session, ['secretariat', 'caisse', 'admin']);
+    const idx = db.hourlyRates.findIndex((r) => r.id === hourlyRateMatch[1]);
+    if (idx < 0) throw new Error('Barème horaire introuvable.');
+    const {
+      baseHourlyRateFcfa,
+      overtimeHourlyRateFcfa,
+      headTeacherMonthlyBonusFcfa,
+      applyToMatchingTeachers,
+    } = parseBody<Partial<CycleHourlyRate> & { applyToMatchingTeachers?: boolean }>(options);
+    const updated: CycleHourlyRate = {
+      ...db.hourlyRates[idx],
+      baseHourlyRateFcfa:
+        baseHourlyRateFcfa !== undefined
+          ? Math.max(0, Number(baseHourlyRateFcfa))
+          : db.hourlyRates[idx].baseHourlyRateFcfa,
+      overtimeHourlyRateFcfa:
+        overtimeHourlyRateFcfa !== undefined
+          ? Math.max(0, Number(overtimeHourlyRateFcfa))
+          : db.hourlyRates[idx].overtimeHourlyRateFcfa,
+      headTeacherMonthlyBonusFcfa:
+        headTeacherMonthlyBonusFcfa !== undefined
+          ? Math.max(0, Number(headTeacherMonthlyBonusFcfa))
+          : db.hourlyRates[idx].headTeacherMonthlyBonusFcfa,
+    };
+    db.hourlyRates[idx] = updated;
+
+    let syncedTeachersCount = 0;
+    if (applyToMatchingTeachers) {
+      db.teachers = db.teachers.map((t) => {
+        if (t.cycles.includes(updated.cycle) && t.programs.includes(updated.program)) {
+          syncedTeachersCount += 1;
+          return { ...t, hourlyRateFcfa: updated.baseHourlyRateFcfa };
+        }
+        return t;
+      });
+    }
+    addAuditLog(
+      db,
+      actor,
+      'Mise à jour barème horaire',
+      'Taux horaires',
+      updated.id,
+      `${updated.cycle} (${updated.program}) : ${updated.baseHourlyRateFcfa} FCFA/h (suppl. ${updated.overtimeHourlyRateFcfa} FCFA/h)${syncedTeachersCount > 0 ? ` · appliqué à ${syncedTeachersCount} enseignant(s)` : ''}.`
+    );
+    await saveLocalDatabase(db);
+    return { hourlyRate: updated, syncedTeachersCount } as T;
+  }
+
+  if (method === 'POST' && path === '/api/teacher-hours') {
+    const actor = assertRole(db, session, ['secretariat', 'caisse', 'admin']);
+    const { teacherId, date, month, hours, classOrSubject, notes } = parseBody<{
+      teacherId?: string;
+      date?: string;
+      month?: string;
+      hours?: number;
+      classOrSubject?: string;
+      notes?: string;
+    }>(options);
+
+    const teacher = db.teachers.find((t) => t.id === teacherId);
+    if (!teacher) throw new Error('Enseignant introuvable.');
+    const cleanHours = Number(hours);
+    if (Number.isNaN(cleanHours) || cleanHours <= 0 || cleanHours > 250) {
+      throw new Error('Veuillez saisir un nombre d’heures valide (> 0).');
+    }
+
+    const cleanDate = (date || new Date().toISOString().slice(0, 10)).trim();
+    const cleanMonth = (month || cleanDate.slice(0, 7)).trim();
+    const log: TeacherHourLog = {
+      id: `hlog-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      teacherId: teacher.id,
+      month: cleanMonth,
+      date: cleanDate,
+      hours: Math.round(cleanHours * 100) / 100,
+      classOrSubject: (classOrSubject || teacher.specialty).trim(),
+      notes: (notes || '').trim(),
+      recordedBy: actor.fullName,
+      createdAt: new Date().toISOString(),
+    };
+
+    db.teacherHourLogs = db.teacherHourLogs || [];
+    db.teacherHourLogs.unshift(log);
+    const cumulativeHours = getTeacherCumulativeHours(db.teacherHourLogs, teacher.id, cleanMonth);
+
+    addAuditLog(
+      db,
+      actor,
+      'Enregistrement heures enseignant',
+      'Cumul heures',
+      teacher.matricule,
+      `${teacher.firstName} ${teacher.lastName} · +${log.hours} h (${cleanMonth}) · Cumul : ${cumulativeHours} h × ${teacher.hourlyRateFcfa} FCFA = ${Math.round(cumulativeHours * teacher.hourlyRateFcfa)} FCFA`
+    );
+    await saveLocalDatabase(db);
+    return { hourLog: log, cumulativeHours } as T;
+  }
+
+  const hourDeleteMatch = path.match(/^\/api\/teacher-hours\/([^/]+)$/);
+  if (method === 'DELETE' && hourDeleteMatch) {
+    const actor = assertRole(db, session, ['secretariat', 'caisse', 'admin']);
+    db.teacherHourLogs = db.teacherHourLogs || [];
+    const target = db.teacherHourLogs.find((l) => l.id === hourDeleteMatch[1]);
+    if (!target) throw new Error('Relevé d’heures introuvable.');
+    db.teacherHourLogs = db.teacherHourLogs.filter((l) => l.id !== hourDeleteMatch[1]);
+    const teacher = db.teachers.find((t) => t.id === target.teacherId);
+    addAuditLog(
+      db,
+      actor,
+      'Suppression relevé d’heures',
+      'Cumul heures',
+      teacher?.matricule || target.teacherId,
+      `Retrait de ${target.hours} h du ${target.date} (${target.month}).`
+    );
+    await saveLocalDatabase(db);
+    return { ok: true } as T;
+  }
+
+  if (method === 'POST' && path === '/api/payslips') {
+    const actor = assertRole(db, session, ['secretariat', 'caisse', 'admin']);
+    const body = parseBody<{
+      teacherId: string;
+      month: string;
+      regularHours: number;
+      overtimeHours?: number;
+      hourlyRateFcfa?: number;
+      overtimeRateFcfa?: number;
+      bonusesFcfa?: number;
+      bonusDetails?: string;
+      cnssRatePercent?: number;
+      advanceOrOtherDeductionFcfa?: number;
+      deductionDetails?: string;
+      paymentMethod?: PayslipPaymentMethod;
+      status?: PayslipStatus;
+    }>(options);
+
+    const teacher = db.teachers.find((t) => t.id === body.teacherId);
+    if (!teacher) throw new Error('Enseignant introuvable.');
+    if (!body.month) throw new Error('Le mois de paie est requis.');
+
+    db.counters.payslipSeq = (db.counters.payslipSeq || db.teacherPayslips.length) + 1;
+    const payslipNumber = `PAIE-2026-${String(db.counters.payslipSeq).padStart(4, '0')}`;
+    const desiredStatus: PayslipStatus = body.status || 'valide';
+    const now = new Date().toISOString();
+
+    const payslip = buildTeacherPayslip({
+      id: `pay-tch-${Date.now()}`,
+      payslipNumber,
+      teacher,
+      month: body.month,
+      academicYear: db.settings.currentAcademicYear,
+      regularHours: body.regularHours,
+      overtimeHours: body.overtimeHours,
+      hourlyRateFcfa: body.hourlyRateFcfa,
+      overtimeRateFcfa: body.overtimeRateFcfa,
+      bonusesFcfa: body.bonusesFcfa,
+      bonusDetails: body.bonusDetails,
+      cnssRatePercent: body.cnssRatePercent,
+      advanceOrOtherDeductionFcfa: body.advanceOrOtherDeductionFcfa,
+      deductionDetails: body.deductionDetails,
+      paymentMethod: body.paymentMethod || 'Virement',
+      status: desiredStatus,
+      createdBy: actor.fullName,
+      createdAt: now,
+      paidAt: desiredStatus === 'paye' ? now : null,
+      paidBy: desiredStatus === 'paye' ? actor.fullName : null,
+    });
+
+    db.teacherPayslips.unshift(payslip);
+    addAuditLog(
+      db,
+      actor,
+      'Édition bulletin de paye',
+      'Paie',
+      payslipNumber,
+      `${teacher.firstName} ${teacher.lastName} (${payslip.periodLabel}) · ${payslip.regularHours} h × ${payslip.hourlyRateFcfa} FCFA = ${payslip.netPayFcfa} FCFA`
+    );
+    await saveLocalDatabase(db);
+    return { payslip } as T;
+  }
+
+  if (method === 'POST' && path === '/api/payslips/batch') {
+    const actor = assertRole(db, session, ['secretariat', 'caisse', 'admin']);
+    const { month } = parseBody<{ month?: string }>(options);
+    if (!month) throw new Error('Veuillez sélectionner un mois de paie.');
+    const activeTeachers = db.teachers.filter((t) => t.status === 'actif');
+    const existingTeacherIds = new Set(
+      db.teacherPayslips.filter((p) => p.month === month).map((p) => p.teacherId)
+    );
+    const created: ReturnType<typeof buildTeacherPayslip>[] = [];
+
+    for (const teacher of activeTeachers) {
+      if (existingTeacherIds.has(teacher.id)) continue;
+      const loggedCumul = getTeacherCumulativeHours(db.teacherHourLogs || [], teacher.id, month);
+      const totalHours = loggedCumul > 0 ? loggedCumul : teacher.weeklyHoursQuota * 4;
+      db.counters.payslipSeq = (db.counters.payslipSeq || db.teacherPayslips.length) + 1;
+      const payslipNumber = `PAIE-2026-${String(db.counters.payslipSeq).padStart(4, '0')}`;
+      const slip = buildTeacherPayslip({
+        id: `pay-tch-${Date.now()}-${teacher.id}`,
+        payslipNumber,
+        teacher,
+        month,
+        academicYear: db.settings.currentAcademicYear,
+        regularHours: totalHours,
+        overtimeHours: 0,
+        bonusesFcfa: teacher.baseBonusFcfa || 0,
+        cnssRatePercent: teacher.cnssRatePercent || 0,
+        paymentMethod:
+          teacher.bankOrMobileAccount.toLowerCase().includes('momo') ||
+          teacher.bankOrMobileAccount.toLowerCase().includes('airtel')
+            ? 'Mobile Money'
+            : 'Virement',
+        status: 'brouillon',
+        createdBy: actor.fullName,
+      });
+      db.teacherPayslips.unshift(slip);
+      created.push(slip);
+    }
+
+    if (created.length === 0) {
+      throw new Error('Tous les enseignants actifs ont déjà un bulletin généré pour ce mois.');
+    }
+    addAuditLog(
+      db,
+      actor,
+      'Génération lot paie mensuelle',
+      'Paie',
+      month,
+      `${created.length} bulletin(s) de paye généré(s) en brouillon pour ${month}.`
+    );
+    await saveLocalDatabase(db);
+    return { createdCount: created.length, payslips: created } as T;
+  }
+
+  const payslipStatusMatch = path.match(/^\/api\/payslips\/([^/]+)\/status$/);
+  if (method === 'POST' && payslipStatusMatch) {
+    const actor = assertRole(db, session, ['secretariat', 'caisse', 'admin']);
+    const slip = db.teacherPayslips.find((p) => p.id === payslipStatusMatch[1]);
+    if (!slip) throw new Error('Bulletin de paye introuvable.');
+    const { status, paymentMethod } = parseBody<{
+      status: PayslipStatus;
+      paymentMethod?: PayslipPaymentMethod;
+    }>(options);
+    slip.status = status;
+    if (paymentMethod) slip.paymentMethod = paymentMethod;
+    if (status === 'paye') {
+      slip.paidAt = new Date().toISOString();
+      slip.paidBy = actor.fullName;
+    }
+    const teacher = db.teachers.find((t) => t.id === slip.teacherId);
+    addAuditLog(
+      db,
+      actor,
+      `Statut bulletin de paye : ${status}`,
+      'Paie',
+      slip.payslipNumber,
+      `${teacher ? `${teacher.firstName} ${teacher.lastName}` : slip.teacherId} (${slip.periodLabel}) · ${slip.netPayFcfa} FCFA`
+    );
+    await saveLocalDatabase(db);
+    return { payslip: slip } as T;
+  }
+
+  const payslipDeleteMatch = path.match(/^\/api\/payslips\/([^/]+)$/);
+  if (method === 'DELETE' && payslipDeleteMatch) {
+    const actor = assertRole(db, session, ['secretariat', 'caisse', 'admin']);
+    const slip = db.teacherPayslips.find((p) => p.id === payslipDeleteMatch[1]);
+    if (!slip) throw new Error('Bulletin de paye introuvable.');
+    if (slip.status === 'paye') {
+      throw new Error('Impossible de supprimer un bulletin de paye déjà payé.');
+    }
+    db.teacherPayslips = db.teacherPayslips.filter((p) => p.id !== payslipDeleteMatch[1]);
+    addAuditLog(
+      db,
+      actor,
+      'Suppression bulletin de paye',
+      'Paie',
+      slip.payslipNumber,
+      `Bulletin ${slip.payslipNumber} (${slip.periodLabel}) supprimé.`
     );
     await saveLocalDatabase(db);
     return { ok: true } as T;

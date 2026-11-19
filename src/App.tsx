@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Award,
   BookOpen,
+  Briefcase,
   CheckSquare,
   CreditCard,
   FileText,
@@ -21,6 +22,7 @@ import { ParentView } from './components/ParentView';
 import { ScolariteView } from './components/ScolariteView';
 import { SecretariatView } from './components/SecretariatView';
 import { SurveillanceView } from './components/SurveillanceView';
+import { TeachersView } from './components/TeachersView';
 import type { UserRole } from './types';
 import { ROLE_LABELS } from './utils/format';
 
@@ -34,6 +36,7 @@ type MenuKey =
   | 'classes'
   | 'notes'
   | 'bulletins'
+  | 'enseignants'
   | 'surveillance'
   | 'parent'
   | 'admin';
@@ -152,6 +155,7 @@ export default function App() {
     if (key === 'eleves') return r === 'scolarite' || r === 'caisse' || r === 'secretariat';
     if (key === 'caisse') return r === 'scolarite' || r === 'caisse';
     if (key === 'classes' || key === 'notes' || key === 'bulletins') return r === 'secretariat';
+    if (key === 'enseignants') return r === 'secretariat' || r === 'caisse';
     if (key === 'surveillance') return r === 'surveillant' || r === 'secretariat';
     return false;
   };
@@ -217,6 +221,13 @@ export default function App() {
           : undefined,
     },
     {
+      id: 'enseignants',
+      label: 'Corps enseignants',
+      icon: (active) => (
+        <Briefcase className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
+      ),
+    },
+    {
       id: 'parent',
       label: 'Vue parentale',
       icon: (active) => (
@@ -237,6 +248,7 @@ export default function App() {
   const handleDashboardNavigate = (sec: NavSection) => {
     if (sec === 'scolarite') setActiveMenu(session.role === 'caisse' ? 'caisse' : 'eleves');
     else if (sec === 'secretariat') setActiveMenu('notes');
+    else if (sec === 'enseignants') setActiveMenu('enseignants');
     else if (sec === 'surveillance') setActiveMenu('surveillance');
     else if (sec === 'parent') setActiveMenu('parent');
     else if (sec === 'admin') setActiveMenu('admin');
@@ -536,6 +548,13 @@ export default function App() {
                         ? 'bulletins'
                         : 'notes'
                   }
+                  onRefresh={() => fetchState(session)}
+                />
+              )}
+              {activeMenu === 'enseignants' && (
+                <TeachersView
+                  state={appState}
+                  session={session}
                   onRefresh={() => fetchState(session)}
                 />
               )}

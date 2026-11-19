@@ -12,6 +12,8 @@ import type {
   SchoolSettings,
   Student,
   Subject,
+  Teacher,
+  TeacherPayslip,
 } from '../types';
 import { formatDateFr, formatDateTimeFr, formatFcfa, generateBarcodeBars } from '../utils/format';
 
@@ -856,6 +858,338 @@ export const BulletinModal: React.FC<{
                   : 'Document provisoire avant validation'}
             </div>
           </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const PayslipModal: React.FC<{
+  payslip: TeacherPayslip;
+  teacher: Teacher;
+  settings: SchoolSettings;
+  onClose: () => void;
+}> = ({ payslip, teacher, settings, onClose }) => {
+  const docRef = React.useRef<HTMLDivElement>(null);
+  const [downloading, setDownloading] = React.useState(false);
+  const [downloadError, setDownloadError] = React.useState<string | null>(null);
+
+  const totalDeductions = payslip.cnssDeductionFcfa + payslip.advanceOrOtherDeductionFcfa;
+  const statusLabel =
+    payslip.status === 'paye'
+      ? 'Payé'
+      : payslip.status === 'valide'
+        ? 'Validé pour paiement'
+        : 'Brouillon';
+
+  const handleDownload = async () => {
+    if (!docRef.current || downloading) return;
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      await downloadElementAsPdf(
+        docRef.current,
+        `Bulletin-Paye-${payslip.payslipNumber}-${teacher.matricule}.pdf`,
+        { maxWidthMm: 186 }
+      );
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'Erreur lors du téléchargement.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      <div className="bg-white border border-slate-200 rounded-xl max-w-3xl w-full max-h-[94vh] flex flex-col shadow-lg overflow-hidden print-container my-auto">
+        <div className="no-print flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-200 bg-slate-50 shrink-0">
+          <div className="min-w-0">
+            <h3 className="text-sm sm:text-base font-semibold text-slate-900 truncate">
+              Bulletin de paye · {payslip.payslipNumber}
+            </h3>
+            <p className="text-xs text-slate-500">
+              {teacher.lastName} {teacher.firstName} · {payslip.periodLabel}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={downloading}
+              onClick={handleDownload}
+              className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-2 text-xs font-semibold text-[#0B1933] bg-[#E5A923] hover:bg-[#d89b18] disabled:opacity-60 rounded-lg transition-colors whitespace-nowrap shrink-0"
+            >
+              <Download className="w-4 h-4" />
+              {downloading ? 'Téléchargement...' : 'Télécharger PDF'}
+            </button>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-2 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
+            >
+              <Printer className="w-4 h-4" />
+              Imprimer
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Fermer"
+              className="p-2 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-200/60 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {downloadError && (
+          <div className="no-print px-4 sm:px-6 py-2 bg-red-50 border-b border-red-200 text-xs text-red-700 shrink-0">
+            {downloadError}
+          </div>
+        )}
+
+        <div className="overflow-y-auto flex-1">
+          <div ref={docRef} className="p-4 sm:p-8 space-y-5 sm:space-y-6 bg-white">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 border-b-2 border-[#0B1933] pb-4">
+              <div className="flex items-center gap-3 sm:gap-4">
+                <img
+                  src={SCHOOL_EMBLEM_URL}
+                  alt="Logo JEGAMA SCHOOL"
+                  referrerPolicy="no-referrer"
+                  className="w-12 h-12 sm:w-16 sm:h-16 rounded object-contain border border-slate-200 p-1 shrink-0"
+                />
+                <div>
+                  <h1 className="text-lg sm:text-xl font-bold text-[#0B1933]">
+                    {settings.schoolName}
+                  </h1>
+                  <p className="text-xs text-slate-600">
+                    {settings.address}, {settings.city} · {settings.country}
+                  </p>
+                  <p className="text-xs font-medium text-slate-700 mt-0.5">
+                    Direction Administrative & Comptabilité · Paie Enseignants
+                  </p>
+                </div>
+              </div>
+              <div className="sm:text-right">
+                <div className="text-sm font-bold text-[#0B1933]">BULLETIN DE PAYE</div>
+                <div className="text-xs font-mono font-bold text-blue-900 mt-0.5">
+                  N° {payslip.payslipNumber}
+                </div>
+                <div className="text-xs text-slate-600 mt-0.5">
+                  Période : <span className="font-semibold text-slate-900">{payslip.periodLabel}</span>
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  Année académique {payslip.academicYear} · Statut : {statusLabel}
+                </div>
+              </div>
+            </div>
+
+            {/* Employer / Teacher identification */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200 text-sm">
+              <StudentAvatar
+                photoUrl={teacher.photoUrl}
+                firstName={teacher.firstName}
+                lastName={teacher.lastName}
+                sizeClass="w-16 h-20"
+              />
+              <div className="flex-1 grid grid-cols-1 md:grid-cols-3 gap-4 w-full">
+                <div>
+                  <div className="text-xs text-slate-500">Enseignant</div>
+                  <div className="font-bold text-slate-900">
+                    {teacher.lastName} {teacher.firstName}
+                  </div>
+                  <div className="text-xs font-mono text-slate-600">
+                    Matricule : {teacher.matricule}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500">Fonction & Spécialité</div>
+                  <div className="font-semibold text-slate-900">{teacher.specialty}</div>
+                  <div className="text-xs text-slate-600">
+                    Contrat {teacher.contractType} · {teacher.cycles.join(', ')}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-xs text-slate-500">Règlement</div>
+                  <div className="font-semibold text-slate-900">{payslip.paymentMethod}</div>
+                  <div className="text-xs text-slate-600 truncate">
+                    {teacher.bankOrMobileAccount || teacher.phone}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Earnings & Deductions Breakdown */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm border border-slate-200">
+                <thead>
+                  <tr className="bg-slate-100 border-b border-slate-200 text-xs text-slate-700">
+                    <th className="py-2.5 px-3 text-left font-semibold">Rubrique de paie</th>
+                    <th className="py-2.5 px-3 text-right font-semibold">Cumul heures</th>
+                    <th className="py-2.5 px-3 text-right font-semibold">Taux horaire</th>
+                    <th className="py-2.5 px-3 text-right font-semibold">Gains (+)</th>
+                    <th className="py-2.5 px-3 text-right font-semibold">Retenues (-)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  <tr>
+                    <td className="py-2.5 px-3">
+                      <div className="font-medium text-slate-900">
+                        Salaire horaire (Cumul des heures × Taux horaire)
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        {payslip.regularHours} h × {formatFcfa(payslip.hourlyRateFcfa)}/h
+                      </div>
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-semibold tabular-nums text-slate-800">
+                      {payslip.regularHours} h
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-700">
+                      {formatFcfa(payslip.hourlyRateFcfa)}/h
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-semibold text-slate-900 tabular-nums">
+                      {formatFcfa(payslip.basePayFcfa)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono text-slate-400">—</td>
+                  </tr>
+
+                  {payslip.overtimeHours > 0 && (
+                    <tr>
+                      <td className="py-2.5 px-3 font-medium text-slate-900">
+                        Heures complémentaires
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-700">
+                        {payslip.overtimeHours} h
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-700">
+                        {formatFcfa(payslip.overtimeRateFcfa)}/h
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono font-semibold text-slate-900 tabular-nums">
+                        {formatFcfa(payslip.overtimePayFcfa)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-slate-400">—</td>
+                    </tr>
+                  )}
+
+                  {payslip.bonusesFcfa > 0 && (
+                    <tr>
+                      <td className="py-2.5 px-3">
+                        <div className="font-medium text-slate-900">Primes & Indemnités</div>
+                        {payslip.bonusDetails && (
+                          <div className="text-xs text-slate-500">{payslip.bonusDetails}</div>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-slate-500">Forfait</td>
+                      <td className="py-2.5 px-3 text-right font-mono text-slate-500">—</td>
+                      <td className="py-2.5 px-3 text-right font-mono font-semibold text-slate-900 tabular-nums">
+                        {formatFcfa(payslip.bonusesFcfa)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-slate-400">—</td>
+                    </tr>
+                  )}
+
+                  <tr className="bg-slate-50/80 font-semibold">
+                    <td className="py-2.5 px-3 text-slate-900" colSpan={3}>
+                      Total Salaire Brut
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono text-blue-950 tabular-nums">
+                      {formatFcfa(payslip.grossPayFcfa)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono text-slate-400">—</td>
+                  </tr>
+
+                  {payslip.cnssDeductionFcfa > 0 && (
+                    <tr>
+                      <td className="py-2.5 px-3 font-medium text-slate-900">
+                        Cotisation sociale / CNSS
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-600">
+                        {formatFcfa(payslip.grossPayFcfa)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-600">
+                        {payslip.grossPayFcfa > 0
+                          ? `${((payslip.cnssDeductionFcfa / payslip.grossPayFcfa) * 100).toFixed(1)}%`
+                          : '—'}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-slate-400">—</td>
+                      <td className="py-2.5 px-3 text-right font-mono font-semibold text-red-700 tabular-nums">
+                        {formatFcfa(payslip.cnssDeductionFcfa)}
+                      </td>
+                    </tr>
+                  )}
+
+                  {payslip.advanceOrOtherDeductionFcfa > 0 && (
+                    <tr>
+                      <td className="py-2.5 px-3">
+                        <div className="font-medium text-slate-900">Avances & Autres retenues</div>
+                        {payslip.deductionDetails && (
+                          <div className="text-xs text-slate-500">{payslip.deductionDetails}</div>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-slate-500">—</td>
+                      <td className="py-2.5 px-3 text-right font-mono text-slate-500">—</td>
+                      <td className="py-2.5 px-3 text-right font-mono text-slate-400">—</td>
+                      <td className="py-2.5 px-3 text-right font-mono font-semibold text-red-700 tabular-nums">
+                        {formatFcfa(payslip.advanceOrOtherDeductionFcfa)}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-slate-50 border-t-2 border-slate-300 font-semibold text-slate-900">
+                    <td className="py-2.5 px-3" colSpan={3}>
+                      Totaux Gains & Retenues
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-900">
+                      {formatFcfa(payslip.grossPayFcfa)}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono tabular-nums text-red-700">
+                      {formatFcfa(totalDeductions)}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            {/* Net a payer box */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-center bg-[#0B1933] text-white rounded-xl p-5">
+              <div>
+                <div className="text-xs font-semibold text-[#E5A923] uppercase tracking-wider">
+                  Salaire Net à payer
+                </div>
+                <div className="text-xs font-mono text-slate-200 mt-1 tabular-nums">
+                  {payslip.regularHours} h × {formatFcfa(payslip.hourlyRateFcfa)}/h = {formatFcfa(payslip.basePayFcfa)}
+                </div>
+                <div className="text-xs text-slate-300 mt-0.5">
+                  Mode de paiement : {payslip.paymentMethod}
+                </div>
+              </div>
+              <div className="sm:text-right">
+                <div className="text-2xl sm:text-3xl font-mono font-extrabold text-white tabular-nums">
+                  {formatFcfa(payslip.netPayFcfa)}
+                </div>
+              </div>
+            </div>
+
+            {/* Signatures & Audit Footer */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-2 text-xs text-slate-600">
+              <div className="border border-slate-200 rounded-lg p-3.5 min-h-[76px] flex flex-col justify-between">
+                <div className="font-semibold text-slate-800">Signature de l’enseignant</div>
+                <div className="text-[11px] text-slate-400">
+                  Pour acquit · {teacher.lastName} {teacher.firstName}
+                </div>
+              </div>
+              <div className="border border-slate-200 rounded-lg p-3.5 min-h-[76px] flex flex-col justify-between">
+                <div className="font-semibold text-slate-800">
+                  Direction & Comptabilité · {settings.schoolName}
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  {payslip.paidAt
+                    ? `Payé le ${formatDateTimeFr(payslip.paidAt)} par ${payslip.paidBy}`
+                    : `Établi le ${formatDateFr(payslip.createdAt)} par ${payslip.createdBy}`}
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>

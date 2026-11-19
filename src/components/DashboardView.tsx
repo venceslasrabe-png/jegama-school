@@ -2,6 +2,7 @@ import React from 'react';
 import {
   ArrowUpRight,
   BookOpen,
+  Briefcase,
   CreditCard,
   GraduationCap,
   Lock,
@@ -17,6 +18,7 @@ export type NavSection =
   | 'dashboard'
   | 'scolarite'
   | 'secretariat'
+  | 'enseignants'
   | 'surveillance'
   | 'parent'
   | 'admin';
@@ -49,6 +51,11 @@ export const DashboardView: React.FC<{
           return { allowed: true, modeLabel: 'Modifier', required: '' };
         }
         return { allowed: false, modeLabel: 'Non autorisé', required: 'Secrétariat académique' };
+      case 'enseignants':
+        if (role === 'secretariat' || role === 'caisse') {
+          return { allowed: true, modeLabel: 'Gérer & paie', required: '' };
+        }
+        return { allowed: false, modeLabel: 'Non autorisé', required: 'Secrétariat / Caisse' };
       case 'surveillance':
         if (role === 'surveillant') {
           return { allowed: true, modeLabel: 'Pointer & modifier', required: '' };
@@ -95,6 +102,14 @@ export const DashboardView: React.FC<{
       metricLabel: 'Bulletins à remettre',
       metricValue: `${summary.bulletinsToDeliverCount} dossier(s)`,
       icon: <BookOpen className="w-5 h-5 text-blue-900" />,
+    },
+    {
+      id: 'enseignants',
+      title: 'Corps enseignants',
+      subtitle: 'Données enseignants, barèmes des taux horaires et bulletins de paye mensuels.',
+      metricLabel: 'Masse salariale',
+      metricValue: `${summary.activeTeachersCount} actif(s) · ${formatFcfa(summary.monthlyPayrollFcfa)}`,
+      icon: <Briefcase className="w-5 h-5 text-blue-900" />,
     },
     {
       id: 'surveillance',
@@ -188,7 +203,7 @@ export const DashboardView: React.FC<{
         <h2 className="font-display text-base font-semibold text-slate-900 mb-3 sm:mb-4">
           Rubriques de gestion
         </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
           {modules.map((mod) => {
             const access = canAccess(mod.id);
             return (

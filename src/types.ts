@@ -256,6 +256,87 @@ export interface AcademicYearArchive {
   records: ArchivedStudentRecord[];
 }
 
+export type TeacherContractType = 'Permanent' | 'Vacataire' | 'Contractuel';
+
+export type TeacherStatus = 'actif' | 'conge' | 'inactif';
+
+export type PayslipPaymentMethod = 'Espèces' | 'Virement' | 'Mobile Money' | 'Chèque';
+
+export type PayslipStatus = 'brouillon' | 'valide' | 'paye';
+
+export interface Teacher {
+  id: string;
+  matricule: string;
+  firstName: string;
+  lastName: string;
+  gender: 'M' | 'F';
+  phone: string;
+  email: string;
+  address: string;
+  photoUrl: string;
+  specialty: string;
+  diploma: string;
+  cycles: SchoolCycle[];
+  programs: SchoolProgram[];
+  contractType: TeacherContractType;
+  hourlyRateFcfa: number;
+  weeklyHoursQuota: number;
+  baseBonusFcfa: number;
+  cnssRatePercent: number;
+  hireDate: string;
+  bankOrMobileAccount: string;
+  status: TeacherStatus;
+}
+
+export interface CycleHourlyRate {
+  id: string;
+  cycle: SchoolCycle;
+  program: SchoolProgram;
+  baseHourlyRateFcfa: number;
+  overtimeHourlyRateFcfa: number;
+  headTeacherMonthlyBonusFcfa: number;
+}
+
+export interface TeacherPayslip {
+  id: string;
+  payslipNumber: string;
+  teacherId: string;
+  month: string;
+  periodLabel: string;
+  academicYear: string;
+  regularHours: number;
+  overtimeHours: number;
+  hourlyRateFcfa: number;
+  overtimeRateFcfa: number;
+  basePayFcfa: number;
+  overtimePayFcfa: number;
+  bonusesFcfa: number;
+  bonusDetails: string;
+  grossPayFcfa: number;
+  cnssDeductionFcfa: number;
+  advanceOrOtherDeductionFcfa: number;
+  deductionDetails: string;
+  netPayFcfa: number;
+  paymentMethod: PayslipPaymentMethod;
+  status: PayslipStatus;
+  createdAt: string;
+  createdBy: string;
+  paidAt: string | null;
+  paidBy: string | null;
+}
+
+export interface TeacherHourLog {
+  id: string;
+  teacherId: string;
+  month: string;
+  date: string;
+  hours: number;
+  classOrSubject: string;
+  notes: string;
+  recordedBy: string;
+  createdAt: string;
+}
+
 export interface SchoolDatabase {
   settings: SchoolSettings;
   users: UserAccount[];
@@ -265,6 +346,10 @@ export interface SchoolDatabase {
   subjects: Subject[];
   parents: ParentTutor[];
   students: Student[];
+  teachers: Teacher[];
+  hourlyRates: CycleHourlyRate[];
+  teacherHourLogs: TeacherHourLog[];
+  teacherPayslips: TeacherPayslip[];
   paymentNotifications: PaymentNotification[];
   payments: Payment[];
   attendanceLogs: AttendanceLog[];
@@ -275,6 +360,8 @@ export interface SchoolDatabase {
   counters: {
     cardSeq: number;
     receiptSeq: number;
+    teacherSeq?: number;
+    payslipSeq?: number;
   };
 }
 
@@ -290,4 +377,6 @@ export interface DashboardSummary {
   pendingNotificationsCount: number;
   unpaidStudentsCount: number;
   bulletinsToDeliverCount: number;
+  activeTeachersCount: number;
+  monthlyPayrollFcfa: number;
 }

@@ -6,10 +6,13 @@ import { createServer as createViteServer } from 'vite';
 import {
   addAuditLog,
   buildAcademicYearArchive,
+  buildTeacherPayslip,
   computeDashboardSummary,
   computeStudentBalance,
   createPeriodsForYear,
   createSeedDatabase,
+  ensureTeacherSeedData,
+  getTeacherCumulativeHours,
   loadDatabase,
   recalculateClassBulletins,
   saveDatabase,
@@ -18,15 +21,20 @@ import type {
   AcademicYearArchive,
   ArchivedStudentRecord,
   AttendanceLog,
+  CycleHourlyRate,
   FeeGridItem,
   Grade,
   ParentTutor,
   Payment,
   PaymentNotification,
+  PayslipPaymentMethod,
+  PayslipStatus,
   SchoolClass,
   SchoolDatabase,
   Student,
   Subject,
+  Teacher,
+  TeacherHourLog,
   UserAccount,
   UserRole,
 } from './src/types';
@@ -99,6 +107,10 @@ function sanitizeDbForClient(db: SchoolDatabase, actor: ActorContext | null) {
         .filter((p) => p.id === actor.id)
         .map(({ accessCode: _c, ...rest }) => rest),
       students: myStudents,
+      teachers: [],
+      hourlyRates: [],
+      teacherHourLogs: [],
+      teacherPayslips: [],
       paymentNotifications: [],
       payments: db.payments.filter((p) => myStudentIds.has(p.studentId)),
       attendanceLogs: db.attendanceLogs.filter((a) => myStudentIds.has(a.studentId)),
@@ -121,6 +133,10 @@ function sanitizeDbForClient(db: SchoolDatabase, actor: ActorContext | null) {
     subjects: db.subjects,
     parents: db.parents,
     students: db.students,
+    teachers: db.teachers || [],
+    hourlyRates: db.hourlyRates || [],
+    teacherHourLogs: db.teacherHourLogs || [],
+    teacherPayslips: db.teacherPayslips || [],
     paymentNotifications: db.paymentNotifications,
     payments: db.payments,
     attendanceLogs: db.attendanceLogs,
@@ -1255,6 +1271,7 @@ async function startServer() {
     if (!Array.isArray(payload.archivedYears)) {
       payload.archivedYears = [];
     }
+    ensureTeacherSeedData(payload);
     addAuditLog(
       payload,
       actor,
@@ -1432,6 +1449,430 @@ async function startServer() {
       'Archive',
       target.academicYear,
       `Archive ${target.academicYear} (${target.source}) supprimée.`
+    );
+    saveDatabase(db);
+    res.json({ ok: true });
+  });
+
+  // --- CORPS ENSEIGNANTS: DONNEES, TAUX HORAIRES & BULLETINS DE PAYE ---
+  app.post('/api/teachers', requireRole(['secretariat', 'caisse', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const body = req.body as Partial<Teacher>;
+    if (!body.firstName?.trim() || !body.lastName?.trim() || !body.specialty?.trim()) {
+      res.status(400).json({ error: 'Prénom, nom et spécialité sont obligatoires.' });
+      return;
+    }
+    db.counters.teacherSeq = (db.counters.teacherSeq || db.teachers.length) + 1;
+    const matricule = `ENS-26-${String(db.counters.teacherSeq).padStart(3, '0')}`;
+    const teacher: Teacher = {
+      id: `tch-${Date.now()}`,
+      matricule,
+      firstName: body.firstName.trim(),
+      lastName: body.lastName.trim().toUpperCase(),
+      gender: body.gender === 'F' ? 'F' : 'M',
+      phone: (body.phone || '').trim(),
+      email: (body.email || '').trim(),
+      address: (body.address || 'Pointe-Noire').trim(),
+      photoUrl: body.photoUrl || '',
+      specialty: body.specialty.trim(),
+      diploma: (body.diploma || 'Licence / Master').trim(),
+      cycles: Array.isArray(body.cycles) && body.cycles.length > 0 ? body.cycles : ['Collège'],
+      programs: Array.isArray(body.programs) && body.programs.length > 0 ? body.programs : ['Congolais'],
+      contractType: body.contractType || 'Permanent',
+      hourlyRateFcfa: Math.max(0, Number(body.hourlyRateFcfa) || 5500),
+      weeklyHoursQuota: Math.max(0, Number(body.weeklyHoursQuota) || 18),
+      baseBonusFcfa: Math.max(0, Number(body.baseBonusFcfa) || 0),
+      cnssRatePercent: Math.max(0, Number(body.cnssRatePercent ?? 0) || 0),
+      hireDate: body.hireDate || new Date().toISOString().slice(0, 10),
+      bankOrMobileAccount: (body.bankOrMobileAccount || 'Caisse établissement').trim(),
+      status: body.status || 'actif',
+    };
+    db.teachers.unshift(teacher);
+    addAuditLog(
+      db,
+      actor,
+      'Ajout enseignant',
+      'Corps enseignants',
+      teacher.matricule,
+      `${teacher.firstName} ${teacher.lastName} · ${teacher.specialty} (${teacher.hourlyRateFcfa} FCFA/h)`
+    );
+    saveDatabase(db);
+    res.status(201).json({ teacher });
+  });
+
+  app.put('/api/teachers/:id', requireRole(['secretariat', 'caisse', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const idx = db.teachers.findIndex((t) => t.id === req.params.id);
+    if (idx < 0) {
+      res.status(404).json({ error: 'Enseignant introuvable.' });
+      return;
+    }
+    const existing = db.teachers[idx];
+    const updates = req.body as Partial<Teacher>;
+    db.teachers[idx] = {
+      ...existing,
+      firstName: updates.firstName !== undefined ? updates.firstName.trim() : existing.firstName,
+      lastName: updates.lastName !== undefined ? updates.lastName.trim().toUpperCase() : existing.lastName,
+      gender: updates.gender ?? existing.gender,
+      phone: updates.phone !== undefined ? updates.phone.trim() : existing.phone,
+      email: updates.email !== undefined ? updates.email.trim() : existing.email,
+      address: updates.address !== undefined ? updates.address.trim() : existing.address,
+      photoUrl: updates.photoUrl !== undefined ? updates.photoUrl : existing.photoUrl,
+      specialty: updates.specialty !== undefined ? updates.specialty.trim() : existing.specialty,
+      diploma: updates.diploma !== undefined ? updates.diploma.trim() : existing.diploma,
+      cycles: Array.isArray(updates.cycles) && updates.cycles.length > 0 ? updates.cycles : existing.cycles,
+      programs: Array.isArray(updates.programs) && updates.programs.length > 0 ? updates.programs : existing.programs,
+      contractType: updates.contractType ?? existing.contractType,
+      hourlyRateFcfa: updates.hourlyRateFcfa !== undefined ? Math.max(0, Number(updates.hourlyRateFcfa)) : existing.hourlyRateFcfa,
+      weeklyHoursQuota: updates.weeklyHoursQuota !== undefined ? Math.max(0, Number(updates.weeklyHoursQuota)) : existing.weeklyHoursQuota,
+      baseBonusFcfa: updates.baseBonusFcfa !== undefined ? Math.max(0, Number(updates.baseBonusFcfa)) : existing.baseBonusFcfa,
+      cnssRatePercent: updates.cnssRatePercent !== undefined ? Math.max(0, Number(updates.cnssRatePercent)) : existing.cnssRatePercent,
+      hireDate: updates.hireDate ?? existing.hireDate,
+      bankOrMobileAccount: updates.bankOrMobileAccount !== undefined ? updates.bankOrMobileAccount.trim() : existing.bankOrMobileAccount,
+      status: updates.status ?? existing.status,
+    };
+    addAuditLog(
+      db,
+      actor,
+      'Mise à jour fiche enseignant',
+      'Corps enseignants',
+      existing.matricule,
+      `${db.teachers[idx].firstName} ${db.teachers[idx].lastName} · Taux ${db.teachers[idx].hourlyRateFcfa} FCFA/h`
+    );
+    saveDatabase(db);
+    res.json({ teacher: db.teachers[idx] });
+  });
+
+  app.delete('/api/teachers/:id', requireRole(['secretariat', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const target = db.teachers.find((t) => t.id === req.params.id);
+    if (!target) {
+      res.status(404).json({ error: 'Enseignant introuvable.' });
+      return;
+    }
+    db.teachers = db.teachers.filter((t) => t.id !== req.params.id);
+    addAuditLog(
+      db,
+      actor,
+      'Suppression fiche enseignant',
+      'Corps enseignants',
+      target.matricule,
+      `${target.firstName} ${target.lastName} supprimé du répertoire actif.`
+    );
+    saveDatabase(db);
+    res.json({ ok: true });
+  });
+
+  app.put('/api/hourly-rates/:id', requireRole(['secretariat', 'caisse', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const idx = db.hourlyRates.findIndex((r) => r.id === req.params.id);
+    if (idx < 0) {
+      res.status(404).json({ error: 'Barème horaire introuvable.' });
+      return;
+    }
+    const { baseHourlyRateFcfa, overtimeHourlyRateFcfa, headTeacherMonthlyBonusFcfa, applyToMatchingTeachers } =
+      req.body as Partial<CycleHourlyRate> & { applyToMatchingTeachers?: boolean };
+
+    const updated: CycleHourlyRate = {
+      ...db.hourlyRates[idx],
+      baseHourlyRateFcfa:
+        baseHourlyRateFcfa !== undefined
+          ? Math.max(0, Number(baseHourlyRateFcfa))
+          : db.hourlyRates[idx].baseHourlyRateFcfa,
+      overtimeHourlyRateFcfa:
+        overtimeHourlyRateFcfa !== undefined
+          ? Math.max(0, Number(overtimeHourlyRateFcfa))
+          : db.hourlyRates[idx].overtimeHourlyRateFcfa,
+      headTeacherMonthlyBonusFcfa:
+        headTeacherMonthlyBonusFcfa !== undefined
+          ? Math.max(0, Number(headTeacherMonthlyBonusFcfa))
+          : db.hourlyRates[idx].headTeacherMonthlyBonusFcfa,
+    };
+    db.hourlyRates[idx] = updated;
+
+    let syncedTeachersCount = 0;
+    if (applyToMatchingTeachers) {
+      db.teachers = db.teachers.map((t) => {
+        if (t.cycles.includes(updated.cycle) && t.programs.includes(updated.program)) {
+          syncedTeachersCount += 1;
+          return { ...t, hourlyRateFcfa: updated.baseHourlyRateFcfa };
+        }
+        return t;
+      });
+    }
+
+    addAuditLog(
+      db,
+      actor,
+      'Mise à jour barème horaire',
+      'Taux horaires',
+      updated.id,
+      `${updated.cycle} (${updated.program}) : ${updated.baseHourlyRateFcfa} FCFA/h (suppl. ${updated.overtimeHourlyRateFcfa} FCFA/h)${syncedTeachersCount > 0 ? ` · appliqué à ${syncedTeachersCount} enseignant(s)` : ''}.`
+    );
+    saveDatabase(db);
+    res.json({ hourlyRate: updated, syncedTeachersCount });
+  });
+
+  app.post('/api/teacher-hours', requireRole(['secretariat', 'caisse', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const { teacherId, date, month, hours, classOrSubject, notes } = req.body as {
+      teacherId?: string;
+      date?: string;
+      month?: string;
+      hours?: number;
+      classOrSubject?: string;
+      notes?: string;
+    };
+
+    const teacher = db.teachers.find((t) => t.id === teacherId);
+    if (!teacher) {
+      res.status(404).json({ error: 'Enseignant introuvable.' });
+      return;
+    }
+    const cleanHours = Number(hours);
+    if (Number.isNaN(cleanHours) || cleanHours <= 0 || cleanHours > 250) {
+      res.status(400).json({ error: 'Veuillez saisir un nombre d’heures valide (> 0).' });
+      return;
+    }
+
+    const cleanDate = (date || new Date().toISOString().slice(0, 10)).trim();
+    const cleanMonth = (month || cleanDate.slice(0, 7)).trim();
+    const log: TeacherHourLog = {
+      id: `hlog-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      teacherId: teacher.id,
+      month: cleanMonth,
+      date: cleanDate,
+      hours: Math.round(cleanHours * 100) / 100,
+      classOrSubject: (classOrSubject || teacher.specialty).trim(),
+      notes: (notes || '').trim(),
+      recordedBy: actor.fullName,
+      createdAt: new Date().toISOString(),
+    };
+
+    db.teacherHourLogs = db.teacherHourLogs || [];
+    db.teacherHourLogs.unshift(log);
+    const cumulativeHours = getTeacherCumulativeHours(db.teacherHourLogs, teacher.id, cleanMonth);
+
+    addAuditLog(
+      db,
+      actor,
+      'Enregistrement heures enseignant',
+      'Cumul heures',
+      teacher.matricule,
+      `${teacher.firstName} ${teacher.lastName} · +${log.hours} h (${cleanMonth}) · Cumul : ${cumulativeHours} h × ${teacher.hourlyRateFcfa} FCFA = ${Math.round(cumulativeHours * teacher.hourlyRateFcfa)} FCFA`
+    );
+    saveDatabase(db);
+    res.status(201).json({ hourLog: log, cumulativeHours });
+  });
+
+  app.delete('/api/teacher-hours/:id', requireRole(['secretariat', 'caisse', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    db.teacherHourLogs = db.teacherHourLogs || [];
+    const target = db.teacherHourLogs.find((l) => l.id === req.params.id);
+    if (!target) {
+      res.status(404).json({ error: 'Relevé d’heures introuvable.' });
+      return;
+    }
+    db.teacherHourLogs = db.teacherHourLogs.filter((l) => l.id !== req.params.id);
+    const teacher = db.teachers.find((t) => t.id === target.teacherId);
+    addAuditLog(
+      db,
+      actor,
+      'Suppression relevé d’heures',
+      'Cumul heures',
+      teacher?.matricule || target.teacherId,
+      `Retrait de ${target.hours} h du ${target.date} (${target.month}).`
+    );
+    saveDatabase(db);
+    res.json({ ok: true });
+  });
+
+  app.post('/api/payslips', requireRole(['secretariat', 'caisse', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const body = req.body as {
+      teacherId: string;
+      month: string;
+      regularHours: number;
+      overtimeHours?: number;
+      hourlyRateFcfa?: number;
+      overtimeRateFcfa?: number;
+      bonusesFcfa?: number;
+      bonusDetails?: string;
+      cnssRatePercent?: number;
+      advanceOrOtherDeductionFcfa?: number;
+      deductionDetails?: string;
+      paymentMethod?: PayslipPaymentMethod;
+      status?: PayslipStatus;
+    };
+
+    const teacher = db.teachers.find((t) => t.id === body.teacherId);
+    if (!teacher) {
+      res.status(404).json({ error: 'Enseignant introuvable.' });
+      return;
+    }
+    if (!body.month) {
+      res.status(400).json({ error: 'Le mois de paie est requis.' });
+      return;
+    }
+
+    db.counters.payslipSeq = (db.counters.payslipSeq || db.teacherPayslips.length) + 1;
+    const payslipNumber = `PAIE-2026-${String(db.counters.payslipSeq).padStart(4, '0')}`;
+    const desiredStatus: PayslipStatus = body.status || 'valide';
+    const now = new Date().toISOString();
+
+    const payslip = buildTeacherPayslip({
+      id: `pay-tch-${Date.now()}`,
+      payslipNumber,
+      teacher,
+      month: body.month,
+      academicYear: db.settings.currentAcademicYear,
+      regularHours: body.regularHours,
+      overtimeHours: body.overtimeHours,
+      hourlyRateFcfa: body.hourlyRateFcfa,
+      overtimeRateFcfa: body.overtimeRateFcfa,
+      bonusesFcfa: body.bonusesFcfa,
+      bonusDetails: body.bonusDetails,
+      cnssRatePercent: body.cnssRatePercent,
+      advanceOrOtherDeductionFcfa: body.advanceOrOtherDeductionFcfa,
+      deductionDetails: body.deductionDetails,
+      paymentMethod: body.paymentMethod || 'Virement',
+      status: desiredStatus,
+      createdBy: actor.fullName,
+      createdAt: now,
+      paidAt: desiredStatus === 'paye' ? now : null,
+      paidBy: desiredStatus === 'paye' ? actor.fullName : null,
+    });
+
+    db.teacherPayslips.unshift(payslip);
+    addAuditLog(
+      db,
+      actor,
+      'Édition bulletin de paye',
+      'Paie',
+      payslipNumber,
+      `${teacher.firstName} ${teacher.lastName} (${payslip.periodLabel}) · ${payslip.regularHours} h × ${payslip.hourlyRateFcfa} FCFA = ${payslip.netPayFcfa} FCFA`
+    );
+    saveDatabase(db);
+    res.status(201).json({ payslip });
+  });
+
+  app.post('/api/payslips/batch', requireRole(['secretariat', 'caisse', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const { month } = req.body as { month?: string };
+    if (!month) {
+      res.status(400).json({ error: 'Veuillez sélectionner un mois de paie.' });
+      return;
+    }
+
+    const activeTeachers = db.teachers.filter((t) => t.status === 'actif');
+    const existingTeacherIds = new Set(
+      db.teacherPayslips.filter((p) => p.month === month).map((p) => p.teacherId)
+    );
+    const created: ReturnType<typeof buildTeacherPayslip>[] = [];
+
+    for (const teacher of activeTeachers) {
+      if (existingTeacherIds.has(teacher.id)) continue;
+      const loggedCumul = getTeacherCumulativeHours(db.teacherHourLogs || [], teacher.id, month);
+      const totalHours = loggedCumul > 0 ? loggedCumul : teacher.weeklyHoursQuota * 4;
+      db.counters.payslipSeq = (db.counters.payslipSeq || db.teacherPayslips.length) + 1;
+      const payslipNumber = `PAIE-2026-${String(db.counters.payslipSeq).padStart(4, '0')}`;
+      const slip = buildTeacherPayslip({
+        id: `pay-tch-${Date.now()}-${teacher.id}`,
+        payslipNumber,
+        teacher,
+        month,
+        academicYear: db.settings.currentAcademicYear,
+        regularHours: totalHours,
+        overtimeHours: 0,
+        bonusesFcfa: teacher.baseBonusFcfa || 0,
+        cnssRatePercent: teacher.cnssRatePercent || 0,
+        paymentMethod: teacher.bankOrMobileAccount.toLowerCase().includes('momo') ||
+          teacher.bankOrMobileAccount.toLowerCase().includes('airtel')
+          ? 'Mobile Money'
+          : 'Virement',
+        status: 'brouillon',
+        createdBy: actor.fullName,
+      });
+      db.teacherPayslips.unshift(slip);
+      created.push(slip);
+    }
+
+    if (created.length === 0) {
+      res.status(400).json({ error: 'Tous les enseignants actifs ont déjà un bulletin généré pour ce mois.' });
+      return;
+    }
+
+    addAuditLog(
+      db,
+      actor,
+      'Génération lot paie mensuelle',
+      'Paie',
+      month,
+      `${created.length} bulletin(s) de paye généré(s) en brouillon pour ${month}.`
+    );
+    saveDatabase(db);
+    res.status(201).json({ createdCount: created.length, payslips: created });
+  });
+
+  app.post('/api/payslips/:id/status', requireRole(['secretariat', 'caisse', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const slip = db.teacherPayslips.find((p) => p.id === req.params.id);
+    if (!slip) {
+      res.status(404).json({ error: 'Bulletin de paye introuvable.' });
+      return;
+    }
+    const { status, paymentMethod } = req.body as {
+      status: PayslipStatus;
+      paymentMethod?: PayslipPaymentMethod;
+    };
+    slip.status = status;
+    if (paymentMethod) slip.paymentMethod = paymentMethod;
+    if (status === 'paye') {
+      slip.paidAt = new Date().toISOString();
+      slip.paidBy = actor.fullName;
+    }
+    const teacher = db.teachers.find((t) => t.id === slip.teacherId);
+    addAuditLog(
+      db,
+      actor,
+      `Statut bulletin de paye : ${status}`,
+      'Paie',
+      slip.payslipNumber,
+      `${teacher ? `${teacher.firstName} ${teacher.lastName}` : slip.teacherId} (${slip.periodLabel}) · ${slip.netPayFcfa} FCFA`
+    );
+    saveDatabase(db);
+    res.json({ payslip: slip });
+  });
+
+  app.delete('/api/payslips/:id', requireRole(['secretariat', 'caisse', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const slip = db.teacherPayslips.find((p) => p.id === req.params.id);
+    if (!slip) {
+      res.status(404).json({ error: 'Bulletin de paye introuvable.' });
+      return;
+    }
+    if (slip.status === 'paye') {
+      res.status(400).json({ error: 'Impossible de supprimer un bulletin de paye déjà payé.' });
+      return;
+    }
+    db.teacherPayslips = db.teacherPayslips.filter((p) => p.id !== req.params.id);
+    addAuditLog(
+      db,
+      actor,
+      'Suppression bulletin de paye',
+      'Paie',
+      slip.payslipNumber,
+      `Bulletin ${slip.payslipNumber} (${slip.periodLabel}) supprimé.`
     );
     saveDatabase(db);
     res.json({ ok: true });
