@@ -237,12 +237,23 @@ export interface ArchivedStudentRecord {
   latesCount: number;
 }
 
+export interface ArchivedTeacherRecord {
+  matricule: string;
+  fullName: string;
+  specialty: string;
+  contractType: string;
+  cycles: string;
+  hourlyRateFcfa: number;
+  totalHours: number;
+  totalPaidFcfa: number;
+}
+
 export interface AcademicYearArchive {
   id: string;
   academicYear: string;
   archivedAt: string;
   archivedBy: string;
-  source: 'cloture' | 'import_excel';
+  source: 'cloture' | 'import_excel' | 'manuel';
   sourceFileName?: string;
   notes?: string;
   summary: {
@@ -252,8 +263,12 @@ export interface AcademicYearArchive {
     bulletinsCount: number;
     averageScore: number | null;
     attendanceLogsCount: number;
+    totalTeachers?: number;
+    totalTeacherHours?: number;
+    totalPayrollFcfa?: number;
   };
   records: ArchivedStudentRecord[];
+  teacherRecords?: ArchivedTeacherRecord[];
 }
 
 export type TeacherContractType = 'Permanent' | 'Vacataire' | 'Contractuel';
@@ -362,6 +377,7 @@ export interface SchoolDatabase {
     receiptSeq: number;
     teacherSeq?: number;
     payslipSeq?: number;
+    archivesSeeded?: boolean;
   };
 }
 

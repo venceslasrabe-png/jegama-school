@@ -1,6 +1,7 @@
 import type {
   AcademicYearArchive,
   ArchivedStudentRecord,
+  ArchivedTeacherRecord,
   AttendanceLog,
   AuditLog,
   Bulletin,
@@ -534,6 +535,276 @@ export function ensureTeacherSeedData(db: SchoolDatabase): SchoolDatabase {
   }
   if (typeof db.counters.payslipSeq !== 'number') {
     db.counters.payslipSeq = db.teacherPayslips.length;
+  }
+  return db;
+}
+
+export function createSeedPreviousArchives(): AcademicYearArchive[] {
+  const archive2025Records: ArchivedStudentRecord[] = [
+    {
+      cardId: 'JS-25-0001',
+      fullName: 'MAKOSSO Chloé',
+      gender: 'F',
+      cycle: 'Primaire',
+      program: 'Français',
+      className: 'CM1 A',
+      parentName: 'M. Bienvenu Makosso',
+      parentPhone: '+242 06 612 45 89',
+      totalExpectedFcfa: 480000,
+      totalPaidFcfa: 480000,
+      balanceRemainingFcfa: 0,
+      generalAverage: 16.4,
+      rank: 1,
+      mention: 'Très bien',
+      absencesCount: 0,
+      latesCount: 1,
+    },
+    {
+      cardId: 'JS-25-0002',
+      fullName: 'TCHICAYA Kévin',
+      gender: 'M',
+      cycle: 'Lycée Général',
+      program: 'Français',
+      className: '2nde S',
+      parentName: 'Mme Hortense Tchicaya',
+      parentPhone: '+242 05 534 19 22',
+      totalExpectedFcfa: 750000,
+      totalPaidFcfa: 750000,
+      balanceRemainingFcfa: 0,
+      generalAverage: 14.55,
+      rank: 2,
+      mention: 'Bien',
+      absencesCount: 1,
+      latesCount: 2,
+    },
+    {
+      cardId: 'JS-25-0003',
+      fullName: 'MAKOSSO Grace',
+      gender: 'F',
+      cycle: 'Collège',
+      program: 'Congolais',
+      className: '5ème A',
+      parentName: 'M. Bienvenu Makosso',
+      parentPhone: '+242 06 612 45 89',
+      totalExpectedFcfa: 350000,
+      totalPaidFcfa: 350000,
+      balanceRemainingFcfa: 0,
+      generalAverage: 13.8,
+      rank: 4,
+      mention: 'Assez bien',
+      absencesCount: 0,
+      latesCount: 0,
+    },
+    {
+      cardId: 'JS-25-0004',
+      fullName: 'LOUBAKI Samuel',
+      gender: 'M',
+      cycle: 'Lycée Technique',
+      program: 'Congolais',
+      className: '1ère F2',
+      parentName: 'M. Arsène Loubaki',
+      parentPhone: '+242 06 811 22 40',
+      totalExpectedFcfa: 495000,
+      totalPaidFcfa: 495000,
+      balanceRemainingFcfa: 0,
+      generalAverage: 15.1,
+      rank: 1,
+      mention: 'Bien',
+      absencesCount: 0,
+      latesCount: 1,
+    },
+    {
+      cardId: 'JS-25-0005',
+      fullName: 'MOUKOKO Prisca',
+      gender: 'F',
+      cycle: 'Collège',
+      program: 'Congolais',
+      className: '5ème A',
+      parentName: 'M. Patrick Ngoma',
+      parentPhone: '+242 06 701 33 15',
+      totalExpectedFcfa: 350000,
+      totalPaidFcfa: 320000,
+      balanceRemainingFcfa: 30000,
+      generalAverage: 12.6,
+      rank: 8,
+      mention: 'Assez bien',
+      absencesCount: 2,
+      latesCount: 1,
+    },
+  ];
+
+  const archive2025Teachers: ArchivedTeacherRecord[] = [
+    {
+      matricule: 'ENS-25-001',
+      fullName: 'MOUANDA Jean-Claude',
+      specialty: 'Mathématiques',
+      contractType: 'Permanent',
+      cycles: 'Collège, Lycée Général',
+      hourlyRateFcfa: 6500,
+      totalHours: 640,
+      totalPaidFcfa: 4160000,
+    },
+    {
+      matricule: 'ENS-25-002',
+      fullName: 'MALONGA Solange',
+      specialty: 'Français & Littérature',
+      contractType: 'Permanent',
+      cycles: 'Primaire, Collège',
+      hourlyRateFcfa: 5500,
+      totalHours: 600,
+      totalPaidFcfa: 3300000,
+    },
+    {
+      matricule: 'ENS-25-003',
+      fullName: 'NGOUABI Serge',
+      specialty: 'Sciences Physiques & Électrotechnique',
+      contractType: 'Contractuel',
+      cycles: 'Lycée Technique, Lycée Général',
+      hourlyRateFcfa: 7500,
+      totalHours: 580,
+      totalPaidFcfa: 4350000,
+    },
+  ];
+
+  const archive2024Records: ArchivedStudentRecord[] = [
+    {
+      cardId: 'JS-24-0001',
+      fullName: 'MAKOSSO Chloé',
+      gender: 'F',
+      cycle: 'Primaire',
+      program: 'Français',
+      className: 'CE2 A',
+      parentName: 'M. Bienvenu Makosso',
+      parentPhone: '+242 06 612 45 89',
+      totalExpectedFcfa: 460000,
+      totalPaidFcfa: 460000,
+      balanceRemainingFcfa: 0,
+      generalAverage: 15.9,
+      rank: 1,
+      mention: 'Bien',
+      absencesCount: 1,
+      latesCount: 0,
+    },
+    {
+      cardId: 'JS-24-0002',
+      fullName: 'TCHICAYA Kévin',
+      gender: 'M',
+      cycle: 'Collège',
+      program: 'Français',
+      className: '3ème A',
+      parentName: 'Mme Hortense Tchicaya',
+      parentPhone: '+242 05 534 19 22',
+      totalExpectedFcfa: 620000,
+      totalPaidFcfa: 620000,
+      balanceRemainingFcfa: 0,
+      generalAverage: 14.1,
+      rank: 3,
+      mention: 'Bien',
+      absencesCount: 0,
+      latesCount: 2,
+    },
+    {
+      cardId: 'JS-24-0003',
+      fullName: 'LOUBAKI Samuel',
+      gender: 'M',
+      cycle: 'Lycée Technique',
+      program: 'Congolais',
+      className: '2nde F2',
+      parentName: 'M. Arsène Loubaki',
+      parentPhone: '+242 06 811 22 40',
+      totalExpectedFcfa: 475000,
+      totalPaidFcfa: 475000,
+      balanceRemainingFcfa: 0,
+      generalAverage: 14.75,
+      rank: 2,
+      mention: 'Bien',
+      absencesCount: 1,
+      latesCount: 1,
+    },
+  ];
+
+  const archive2024Teachers: ArchivedTeacherRecord[] = [
+    {
+      matricule: 'ENS-24-001',
+      fullName: 'MOUANDA Jean-Claude',
+      specialty: 'Mathématiques',
+      contractType: 'Permanent',
+      cycles: 'Collège, Lycée Général',
+      hourlyRateFcfa: 6000,
+      totalHours: 610,
+      totalPaidFcfa: 3660000,
+    },
+    {
+      matricule: 'ENS-24-002',
+      fullName: 'MALONGA Solange',
+      specialty: 'Français & Littérature',
+      contractType: 'Permanent',
+      cycles: 'Primaire, Collège',
+      hourlyRateFcfa: 5000,
+      totalHours: 590,
+      totalPaidFcfa: 2950000,
+    },
+  ];
+
+  return [
+    {
+      id: 'arch-seed-2025-2026',
+      academicYear: '2025-2026',
+      archivedAt: '2026-07-10T16:30:00.000Z',
+      archivedBy: 'M. Arsène Ngakala',
+      source: 'cloture',
+      notes: 'Clôture officielle de l’année académique 2025-2026 — dossiers élèves, scolarité et masse salariale.',
+      summary: {
+        totalStudents: archive2025Records.length,
+        totalExpectedFcfa: archive2025Records.reduce((s, r) => s + r.totalExpectedFcfa, 0),
+        totalCollectedFcfa: archive2025Records.reduce((s, r) => s + r.totalPaidFcfa, 0),
+        bulletinsCount: archive2025Records.length,
+        averageScore: 14.49,
+        attendanceLogsCount: 8,
+        totalTeachers: archive2025Teachers.length,
+        totalTeacherHours: archive2025Teachers.reduce((s, t) => s + t.totalHours, 0),
+        totalPayrollFcfa: archive2025Teachers.reduce((s, t) => s + t.totalPaidFcfa, 0),
+      },
+      records: archive2025Records,
+      teacherRecords: archive2025Teachers,
+    },
+    {
+      id: 'arch-seed-2024-2025',
+      academicYear: '2024-2025',
+      archivedAt: '2025-07-12T15:00:00.000Z',
+      archivedBy: 'M. Arsène Ngakala',
+      source: 'import_excel',
+      sourceFileName: 'archive-jegama-2024-2025.xlsx',
+      notes: 'Archive historique 2024-2025 importée depuis le registre Excel de l’établissement.',
+      summary: {
+        totalStudents: archive2024Records.length,
+        totalExpectedFcfa: archive2024Records.reduce((s, r) => s + r.totalExpectedFcfa, 0),
+        totalCollectedFcfa: archive2024Records.reduce((s, r) => s + r.totalPaidFcfa, 0),
+        bulletinsCount: archive2024Records.length,
+        averageScore: 14.92,
+        attendanceLogsCount: 5,
+        totalTeachers: archive2024Teachers.length,
+        totalTeacherHours: archive2024Teachers.reduce((s, t) => s + t.totalHours, 0),
+        totalPayrollFcfa: archive2024Teachers.reduce((s, t) => s + t.totalPaidFcfa, 0),
+      },
+      records: archive2024Records,
+      teacherRecords: archive2024Teachers,
+    },
+  ];
+}
+
+export function ensureArchiveSeedData(db: SchoolDatabase): SchoolDatabase {
+  if (!Array.isArray(db.archivedYears)) {
+    db.archivedYears = [];
+  }
+  if (!db.counters) {
+    db.counters = { cardSeq: 8, receiptSeq: 6 };
+  }
+  if (db.archivedYears.length === 0 && !db.counters.archivesSeeded) {
+    db.archivedYears = createSeedPreviousArchives();
+    db.counters.archivesSeeded = true;
+  } else if (db.archivedYears.length > 0 && !db.counters.archivesSeeded) {
+    db.counters.archivesSeeded = true;
   }
   return db;
 }
@@ -1425,12 +1696,13 @@ export function createSeedDatabase(): SchoolDatabase {
         details: 'Bulletin Trimestre 1 de Chloé MAKOSSO (JS-26-0001) remis à M. Bienvenu Makosso (Père).',
       },
     ],
-    archivedYears: [],
+    archivedYears: createSeedPreviousArchives(),
     counters: {
       cardSeq: 8,
       receiptSeq: 6,
       teacherSeq: seedTeachers.length,
       payslipSeq: seedPayslips.length,
+      archivesSeeded: true,
     },
   };
 }
@@ -1711,9 +1983,43 @@ export function buildAcademicYearArchive(
     };
   });
 
+  const currentYear = db.settings.currentAcademicYear;
+  const teacherRecords: ArchivedTeacherRecord[] = (db.teachers || []).map((teacher) => {
+    const teacherSlips = (db.teacherPayslips || []).filter(
+      (p) => p.teacherId === teacher.id && p.academicYear === currentYear
+    );
+    const loggedHours = (db.teacherHourLogs || [])
+      .filter((l) => l.teacherId === teacher.id)
+      .reduce((sum, l) => sum + (Number(l.hours) || 0), 0);
+    const slipHours = teacherSlips.reduce(
+      (sum, p) => sum + p.regularHours + p.overtimeHours,
+      0
+    );
+    const totalHours = Math.round((loggedHours > 0 ? loggedHours : slipHours) * 100) / 100;
+    const totalPaidFcfa =
+      teacherSlips.length > 0
+        ? teacherSlips.reduce((sum, p) => sum + p.netPayFcfa, 0)
+        : Math.round(totalHours * teacher.hourlyRateFcfa);
+
+    return {
+      matricule: teacher.matricule,
+      fullName: `${teacher.lastName} ${teacher.firstName}`,
+      specialty: teacher.specialty,
+      contractType: teacher.contractType,
+      cycles: teacher.cycles.join(', '),
+      hourlyRateFcfa: teacher.hourlyRateFcfa,
+      totalHours,
+      totalPaidFcfa,
+    };
+  });
+
+  const totalTeacherHours =
+    Math.round(teacherRecords.reduce((s, t) => s + t.totalHours, 0) * 100) / 100;
+  const totalPayrollFcfa = teacherRecords.reduce((s, t) => s + t.totalPaidFcfa, 0);
+
   return {
     id: `arch-${Date.now()}`,
-    academicYear: db.settings.currentAcademicYear,
+    academicYear: currentYear,
     archivedAt: new Date().toISOString(),
     archivedBy: actor.fullName,
     source: 'cloture',
@@ -1725,8 +2031,12 @@ export function buildAcademicYearArchive(
       bulletinsCount: db.bulletins.length,
       averageScore: avgCount > 0 ? Math.round((avgSum / avgCount) * 100) / 100 : null,
       attendanceLogsCount: db.attendanceLogs.length,
+      totalTeachers: teacherRecords.length,
+      totalTeacherHours,
+      totalPayrollFcfa,
     },
     records,
+    teacherRecords,
   };
 }
 

@@ -11,6 +11,7 @@ import {
   computeStudentBalance,
   createPeriodsForYear,
   createSeedDatabase,
+  ensureArchiveSeedData,
   ensureTeacherSeedData,
   getTeacherCumulativeHours,
   loadDatabase,
@@ -20,6 +21,7 @@ import {
 import type {
   AcademicYearArchive,
   ArchivedStudentRecord,
+  ArchivedTeacherRecord,
   AttendanceLog,
   CycleHourlyRate,
   FeeGridItem,
@@ -1272,6 +1274,7 @@ async function startServer() {
       payload.archivedYears = [];
     }
     ensureTeacherSeedData(payload);
+    ensureArchiveSeedData(payload);
     addAuditLog(
       payload,
       actor,
@@ -1287,10 +1290,11 @@ async function startServer() {
   app.post('/api/admin/academic-years/create', requireRole(['admin']), (req, res) => {
     const db = loadDatabase();
     const actor = getActor(req, db)!;
-    const { newAcademicYear, archiveNotes, periodMode } = req.body as {
+    const { newAcademicYear, archiveNotes, periodMode, resetTeacherLogs } = req.body as {
       newAcademicYear?: string;
       archiveNotes?: string;
       periodMode?: 'Trimestres' | 'Séquences';
+      resetTeacherLogs?: boolean;
     };
 
     const nextYear = (newAcademicYear || '').trim();
@@ -1307,6 +1311,8 @@ async function startServer() {
     const archive = buildAcademicYearArchive(db, actor, archiveNotes);
     db.archivedYears = db.archivedYears || [];
     db.archivedYears.unshift(archive);
+    db.counters = db.counters || { cardSeq: 8, receiptSeq: 6 };
+    db.counters.archivesSeeded = true;
 
     const nextMode = periodMode || db.settings.periodMode;
     db.settings.currentAcademicYear = nextYear;
@@ -1326,6 +1332,10 @@ async function startServer() {
     db.payments = [];
     db.paymentNotifications = [];
     db.attendanceLogs = [];
+    if (resetTeacherLogs) {
+      db.teacherHourLogs = [];
+      db.teacherPayslips = [];
+    }
 
     addAuditLog(
       db,
@@ -1339,98 +1349,393 @@ async function startServer() {
     res.status(201).json({ archive, settings: db.settings });
   });
 
-  app.post('/api/admin/archives/import-excel', requireRole(['admin']), (req, res) => {
-    const db = loadDatabase();
-    const actor = getActor(req, db)!;
-    const { academicYear, sourceFileName, notes, records } = req.body as {
-      academicYear?: string;
-      sourceFileName?: string;
-      notes?: string;
-      records?: ArchivedStudentRecord[];
-    };
+  app.post(
+    '/api/admin/archives/import-excel',
+    requireRole(['admin', 'secretariat', 'caisse', 'scolarite']),
+    (req, res) => {
+      const db = loadDatabase();
+      const actor = getActor(req, db)!;
+      const { academicYear, sourceFileName, notes, records, teacherRecords, mergeIntoArchiveId } =
+        req.body as {
+          academicYear?: string;
+          sourceFileName?: string;
+          notes?: string;
+          records?: ArchivedStudentRecord[];
+          teacherRecords?: ArchivedTeacherRecord[];
+          mergeIntoArchiveId?: string;
+        };
 
-    const cleanYear = (academicYear || '').trim();
-    if (!cleanYear) {
-      res.status(400).json({ error: 'Veuillez indiquer l’année académique correspondante (ex. 2025-2026).' });
-      return;
-    }
-    if (!Array.isArray(records) || records.length === 0) {
-      res.status(400).json({ error: 'Aucune ligne d’élève valide trouvée dans le fichier Excel.' });
-      return;
-    }
+      const cleanYear = (academicYear || '').trim();
+      if (!cleanYear && !mergeIntoArchiveId) {
+        res.status(400).json({ error: 'Veuillez indiquer l’année académique correspondante (ex. 2025-2026).' });
+        return;
+      }
+      const hasStudents = Array.isArray(records) && records.length > 0;
+      const hasTeachers = Array.isArray(teacherRecords) && teacherRecords.length > 0;
+      if (!hasStudents && !hasTeachers) {
+        res.status(400).json({ error: 'Aucune ligne élève ou enseignant valide trouvée dans le fichier Excel.' });
+        return;
+      }
 
-    const sanitizedRecords: ArchivedStudentRecord[] = records.map((r, index) => {
-      const expected = Number(r.totalExpectedFcfa) || 0;
-      const paid = Number(r.totalPaidFcfa) || 0;
-      const remaining =
-        r.balanceRemainingFcfa !== undefined && r.balanceRemainingFcfa !== null
-          ? Number(r.balanceRemainingFcfa) || 0
-          : Math.max(0, expected - paid);
-      const avg =
-        r.generalAverage !== null && r.generalAverage !== undefined && !Number.isNaN(Number(r.generalAverage))
-          ? Math.round(Number(r.generalAverage) * 100) / 100
+      const targetYearForIds = cleanYear || '2025-2026';
+
+      const sanitizedRecords: ArchivedStudentRecord[] = (records || []).map((r, index) => {
+        const expected = Number(r.totalExpectedFcfa) || 0;
+        const paid = Number(r.totalPaidFcfa) || 0;
+        const remaining =
+          r.balanceRemainingFcfa !== undefined && r.balanceRemainingFcfa !== null
+            ? Number(r.balanceRemainingFcfa) || 0
+            : Math.max(0, expected - paid);
+        const avg =
+          r.generalAverage !== null && r.generalAverage !== undefined && !Number.isNaN(Number(r.generalAverage))
+            ? Math.round(Number(r.generalAverage) * 100) / 100
+            : null;
+        return {
+          cardId: (r.cardId || `ARC-${targetYearForIds.slice(2, 4)}-${String(index + 1).padStart(4, '0')}`).trim(),
+          fullName: (r.fullName || `Élève ${index + 1}`).trim(),
+          gender: (r.gender || '—').trim(),
+          cycle: (r.cycle || '—').trim(),
+          program: (r.program || 'Congolais').trim(),
+          className: (r.className || '—').trim(),
+          parentName: (r.parentName || '—').trim(),
+          parentPhone: (r.parentPhone || '—').trim(),
+          totalExpectedFcfa: expected,
+          totalPaidFcfa: paid,
+          balanceRemainingFcfa: remaining,
+          generalAverage: avg,
+          rank: r.rank !== null && r.rank !== undefined && !Number.isNaN(Number(r.rank)) ? Number(r.rank) : null,
+          mention: (r.mention || '—').trim(),
+          absencesCount: Number(r.absencesCount) || 0,
+          latesCount: Number(r.latesCount) || 0,
+        };
+      });
+
+      const sanitizedTeachers: ArchivedTeacherRecord[] = (teacherRecords || []).map((t, index) => {
+        const hourlyRateFcfa = Number(t.hourlyRateFcfa) || 0;
+        const totalHours = Number(t.totalHours) || 0;
+        const totalPaidFcfa =
+          t.totalPaidFcfa !== undefined && t.totalPaidFcfa !== null
+            ? Number(t.totalPaidFcfa) || 0
+            : Math.round(hourlyRateFcfa * totalHours);
+        return {
+          matricule: (t.matricule || `ENS-ARC-${String(index + 1).padStart(3, '0')}`).trim(),
+          fullName: (t.fullName || `Enseignant ${index + 1}`).trim(),
+          specialty: (t.specialty || '—').trim(),
+          contractType: (t.contractType || 'Permanent').trim(),
+          cycles: (t.cycles || '—').trim(),
+          hourlyRateFcfa,
+          totalHours,
+          totalPaidFcfa,
+        };
+      });
+
+      db.archivedYears = db.archivedYears || [];
+      db.counters = db.counters || { cardSeq: 8, receiptSeq: 6 };
+      db.counters.archivesSeeded = true;
+
+      const existingArchive = mergeIntoArchiveId
+        ? db.archivedYears.find((a) => a.id === mergeIntoArchiveId)
+        : undefined;
+
+      if (mergeIntoArchiveId && !existingArchive) {
+        res.status(404).json({ error: 'Archive cible introuvable pour la fusion Excel.' });
+        return;
+      }
+
+      if (existingArchive) {
+        const mergedRecords = [...existingArchive.records];
+        for (const incoming of sanitizedRecords) {
+          const idx = mergedRecords.findIndex(
+            (r) =>
+              r.cardId.toLowerCase() === incoming.cardId.toLowerCase() ||
+              (r.fullName.toLowerCase() === incoming.fullName.toLowerCase() &&
+                r.className.toLowerCase() === incoming.className.toLowerCase())
+          );
+          if (idx >= 0) mergedRecords[idx] = incoming;
+          else mergedRecords.push(incoming);
+        }
+
+        const mergedTeachers = [...(existingArchive.teacherRecords || [])];
+        for (const incomingT of sanitizedTeachers) {
+          const idx = mergedTeachers.findIndex(
+            (t) =>
+              t.matricule.toLowerCase() === incomingT.matricule.toLowerCase() ||
+              t.fullName.toLowerCase() === incomingT.fullName.toLowerCase()
+          );
+          if (idx >= 0) mergedTeachers[idx] = incomingT;
+          else mergedTeachers.push(incomingT);
+        }
+
+        const totalExpectedFcfa = mergedRecords.reduce((s, r) => s + r.totalExpectedFcfa, 0);
+        const totalCollectedFcfa = mergedRecords.reduce((s, r) => s + r.totalPaidFcfa, 0);
+        const avgRows = mergedRecords.filter((r) => r.generalAverage !== null);
+        const averageScore =
+          avgRows.length > 0
+            ? Math.round((avgRows.reduce((s, r) => s + (r.generalAverage || 0), 0) / avgRows.length) * 100) / 100
+            : null;
+        const totalTeacherHours =
+          Math.round(mergedTeachers.reduce((s, t) => s + t.totalHours, 0) * 100) / 100;
+        const totalPayrollFcfa = mergedTeachers.reduce((s, t) => s + t.totalPaidFcfa, 0);
+
+        existingArchive.records = mergedRecords;
+        existingArchive.teacherRecords = mergedTeachers;
+        existingArchive.archivedAt = new Date().toISOString();
+        existingArchive.archivedBy = actor.fullName;
+        if (notes?.trim()) {
+          existingArchive.notes = existingArchive.notes
+            ? `${existingArchive.notes} · ${notes.trim()}`
+            : notes.trim();
+        }
+        existingArchive.summary = {
+          totalStudents: mergedRecords.length,
+          totalExpectedFcfa,
+          totalCollectedFcfa,
+          bulletinsCount: avgRows.length,
+          averageScore,
+          attendanceLogsCount: mergedRecords.reduce((s, r) => s + r.absencesCount + r.latesCount, 0),
+          totalTeachers: mergedTeachers.length,
+          totalTeacherHours,
+          totalPayrollFcfa,
+        };
+
+        addAuditLog(
+          db,
+          actor,
+          'Complément archive Excel',
+          'Archive',
+          existingArchive.academicYear,
+          `Archive ${existingArchive.academicYear} complétée depuis "${sourceFileName || 'import.xlsx'}" (+${sanitizedRecords.length} élève(s), +${sanitizedTeachers.length} enseignant(s)).`
+        );
+        saveDatabase(db);
+        res.status(200).json({ archive: existingArchive });
+        return;
+      }
+
+      const totalExpectedFcfa = sanitizedRecords.reduce((s, r) => s + r.totalExpectedFcfa, 0);
+      const totalCollectedFcfa = sanitizedRecords.reduce((s, r) => s + r.totalPaidFcfa, 0);
+      const avgRows = sanitizedRecords.filter((r) => r.generalAverage !== null);
+      const averageScore =
+        avgRows.length > 0
+          ? Math.round((avgRows.reduce((s, r) => s + (r.generalAverage || 0), 0) / avgRows.length) * 100) / 100
           : null;
-      return {
-        cardId: (r.cardId || `ARC-${cleanYear.slice(2, 4)}-${String(index + 1).padStart(4, '0')}`).trim(),
-        fullName: (r.fullName || `Élève ${index + 1}`).trim(),
-        gender: (r.gender || '—').trim(),
-        cycle: (r.cycle || '—').trim(),
-        program: (r.program || 'Congolais').trim(),
-        className: (r.className || '—').trim(),
-        parentName: (r.parentName || '—').trim(),
-        parentPhone: (r.parentPhone || '—').trim(),
-        totalExpectedFcfa: expected,
-        totalPaidFcfa: paid,
-        balanceRemainingFcfa: remaining,
-        generalAverage: avg,
-        rank: r.rank !== null && r.rank !== undefined && !Number.isNaN(Number(r.rank)) ? Number(r.rank) : null,
-        mention: (r.mention || '—').trim(),
-        absencesCount: Number(r.absencesCount) || 0,
-        latesCount: Number(r.latesCount) || 0,
+      const totalTeacherHours =
+        Math.round(sanitizedTeachers.reduce((s, t) => s + t.totalHours, 0) * 100) / 100;
+      const totalPayrollFcfa = sanitizedTeachers.reduce((s, t) => s + t.totalPaidFcfa, 0);
+
+      const archive: AcademicYearArchive = {
+        id: `arch-xls-${Date.now()}`,
+        academicYear: cleanYear,
+        archivedAt: new Date().toISOString(),
+        archivedBy: actor.fullName,
+        source: 'import_excel',
+        sourceFileName: sourceFileName || 'import.xlsx',
+        notes: notes?.trim() || 'Archive importée depuis un fichier Excel.',
+        summary: {
+          totalStudents: sanitizedRecords.length,
+          totalExpectedFcfa,
+          totalCollectedFcfa,
+          bulletinsCount: avgRows.length,
+          averageScore,
+          attendanceLogsCount: sanitizedRecords.reduce((s, r) => s + r.absencesCount + r.latesCount, 0),
+          totalTeachers: sanitizedTeachers.length,
+          totalTeacherHours,
+          totalPayrollFcfa,
+        },
+        records: sanitizedRecords,
+        teacherRecords: sanitizedTeachers,
       };
-    });
 
-    const totalExpectedFcfa = sanitizedRecords.reduce((s, r) => s + r.totalExpectedFcfa, 0);
-    const totalCollectedFcfa = sanitizedRecords.reduce((s, r) => s + r.totalPaidFcfa, 0);
-    const avgRows = sanitizedRecords.filter((r) => r.generalAverage !== null);
-    const averageScore =
-      avgRows.length > 0
-        ? Math.round((avgRows.reduce((s, r) => s + (r.generalAverage || 0), 0) / avgRows.length) * 100) / 100
-        : null;
+      db.archivedYears.unshift(archive);
 
-    const archive: AcademicYearArchive = {
-      id: `arch-xls-${Date.now()}`,
-      academicYear: cleanYear,
-      archivedAt: new Date().toISOString(),
-      archivedBy: actor.fullName,
-      source: 'import_excel',
-      sourceFileName: sourceFileName || 'import.xlsx',
-      notes: notes?.trim() || 'Archive importée depuis un fichier Excel.',
-      summary: {
-        totalStudents: sanitizedRecords.length,
-        totalExpectedFcfa,
-        totalCollectedFcfa,
-        bulletinsCount: avgRows.length,
-        averageScore,
-        attendanceLogsCount: sanitizedRecords.reduce((s, r) => s + r.absencesCount + r.latesCount, 0),
-      },
-      records: sanitizedRecords,
-    };
+      addAuditLog(
+        db,
+        actor,
+        'Importation archive Excel',
+        'Archive',
+        cleanYear,
+        `Archive ${cleanYear} importée depuis "${archive.sourceFileName}" (${sanitizedRecords.length} élève(s), ${sanitizedTeachers.length} enseignant(s)).`
+      );
+      saveDatabase(db);
+      res.status(201).json({ archive });
+    }
+  );
 
-    db.archivedYears = db.archivedYears || [];
-    db.archivedYears.unshift(archive);
+  app.post(
+    '/api/admin/archives/manual',
+    requireRole(['admin', 'secretariat', 'caisse', 'scolarite']),
+    (req, res) => {
+      const db = loadDatabase();
+      const actor = getActor(req, db)!;
+      const {
+        academicYear,
+        notes,
+        records,
+        teacherRecords,
+        summaryOverrides,
+      } = req.body as {
+        academicYear?: string;
+        notes?: string;
+        records?: ArchivedStudentRecord[];
+        teacherRecords?: ArchivedTeacherRecord[];
+        summaryOverrides?: {
+          totalStudents?: number;
+          totalExpectedFcfa?: number;
+          totalCollectedFcfa?: number;
+          averageScore?: number | null;
+          totalTeachers?: number;
+          totalPayrollFcfa?: number;
+        };
+      };
 
-    addAuditLog(
-      db,
-      actor,
-      'Importation archive Excel',
-      'Archive',
-      cleanYear,
-      `Archive ${cleanYear} importée depuis "${archive.sourceFileName}" (${sanitizedRecords.length} élève(s)).`
-    );
-    saveDatabase(db);
-    res.status(201).json({ archive });
-  });
+      const cleanYear = (academicYear || '').trim();
+      if (!cleanYear) {
+        res.status(400).json({ error: 'Veuillez indiquer l’année académique à archiver (ex. 2023-2024).' });
+        return;
+      }
+
+      const sanitizedRecords: ArchivedStudentRecord[] = (records || [])
+        .filter((r) => (r.fullName || '').trim().length > 0)
+        .map((r, index) => {
+          const expected = Number(r.totalExpectedFcfa) || 0;
+          const paid = Number(r.totalPaidFcfa) || 0;
+          const remaining =
+            r.balanceRemainingFcfa !== undefined && r.balanceRemainingFcfa !== null
+              ? Number(r.balanceRemainingFcfa) || 0
+              : Math.max(0, expected - paid);
+          const avg =
+            r.generalAverage !== null && r.generalAverage !== undefined && !Number.isNaN(Number(r.generalAverage))
+              ? Math.round(Number(r.generalAverage) * 100) / 100
+              : null;
+          return {
+            cardId: (r.cardId || `ARC-${cleanYear.slice(2, 4)}-${String(index + 1).padStart(4, '0')}`).trim(),
+            fullName: r.fullName.trim(),
+            gender: (r.gender || '—').trim(),
+            cycle: (r.cycle || '—').trim(),
+            program: (r.program || 'Congolais').trim(),
+            className: (r.className || '—').trim(),
+            parentName: (r.parentName || '—').trim(),
+            parentPhone: (r.parentPhone || '—').trim(),
+            totalExpectedFcfa: expected,
+            totalPaidFcfa: paid,
+            balanceRemainingFcfa: remaining,
+            generalAverage: avg,
+            rank: r.rank !== null && r.rank !== undefined && !Number.isNaN(Number(r.rank)) ? Number(r.rank) : null,
+            mention: (r.mention || '—').trim(),
+            absencesCount: Number(r.absencesCount) || 0,
+            latesCount: Number(r.latesCount) || 0,
+          };
+        });
+
+      const sanitizedTeachers: ArchivedTeacherRecord[] = (teacherRecords || [])
+        .filter((t) => (t.fullName || '').trim().length > 0)
+        .map((t, index) => {
+          const hourlyRateFcfa = Number(t.hourlyRateFcfa) || 0;
+          const totalHours = Number(t.totalHours) || 0;
+          const totalPaidFcfa =
+            t.totalPaidFcfa !== undefined && t.totalPaidFcfa !== null
+              ? Number(t.totalPaidFcfa) || 0
+              : Math.round(hourlyRateFcfa * totalHours);
+          return {
+            matricule: (t.matricule || `ENS-ARC-${String(index + 1).padStart(3, '0')}`).trim(),
+            fullName: t.fullName.trim(),
+            specialty: (t.specialty || '—').trim(),
+            contractType: (t.contractType || 'Permanent').trim(),
+            cycles: (t.cycles || '—').trim(),
+            hourlyRateFcfa,
+            totalHours,
+            totalPaidFcfa,
+          };
+        });
+
+      const avgRows = sanitizedRecords.filter((r) => r.generalAverage !== null);
+      const computedAvg =
+        avgRows.length > 0
+          ? Math.round((avgRows.reduce((s, r) => s + (r.generalAverage || 0), 0) / avgRows.length) * 100) / 100
+          : null;
+
+      const totalStudents =
+        sanitizedRecords.length > 0
+          ? sanitizedRecords.length
+          : Math.max(0, Number(summaryOverrides?.totalStudents) || 0);
+      const totalExpectedFcfa =
+        sanitizedRecords.length > 0
+          ? sanitizedRecords.reduce((s, r) => s + r.totalExpectedFcfa, 0)
+          : Math.max(0, Number(summaryOverrides?.totalExpectedFcfa) || 0);
+      const totalCollectedFcfa =
+        sanitizedRecords.length > 0
+          ? sanitizedRecords.reduce((s, r) => s + r.totalPaidFcfa, 0)
+          : Math.max(0, Number(summaryOverrides?.totalCollectedFcfa) || 0);
+      const averageScore =
+        computedAvg !== null
+          ? computedAvg
+          : summaryOverrides?.averageScore !== null &&
+              summaryOverrides?.averageScore !== undefined &&
+              !Number.isNaN(Number(summaryOverrides.averageScore))
+            ? Math.round(Number(summaryOverrides.averageScore) * 100) / 100
+            : null;
+      const totalTeachers =
+        sanitizedTeachers.length > 0
+          ? sanitizedTeachers.length
+          : Math.max(0, Number(summaryOverrides?.totalTeachers) || 0);
+      const totalTeacherHours =
+        Math.round(sanitizedTeachers.reduce((s, t) => s + t.totalHours, 0) * 100) / 100;
+      const totalPayrollFcfa =
+        sanitizedTeachers.length > 0
+          ? sanitizedTeachers.reduce((s, t) => s + t.totalPaidFcfa, 0)
+          : Math.max(0, Number(summaryOverrides?.totalPayrollFcfa) || 0);
+
+      if (
+        totalStudents === 0 &&
+        totalCollectedFcfa === 0 &&
+        totalTeachers === 0 &&
+        totalPayrollFcfa === 0 &&
+        !(notes || '').trim()
+      ) {
+        res.status(400).json({
+          error: 'Veuillez saisir au moins un dossier élève, enseignant ou un bilan chiffré pour archiver cette année.',
+        });
+        return;
+      }
+
+      const archive: AcademicYearArchive = {
+        id: `arch-man-${Date.now()}`,
+        academicYear: cleanYear,
+        archivedAt: new Date().toISOString(),
+        archivedBy: actor.fullName,
+        source: 'manuel',
+        notes: notes?.trim() || 'Archive d’année antérieure enregistrée manuellement.',
+        summary: {
+          totalStudents,
+          totalExpectedFcfa,
+          totalCollectedFcfa,
+          bulletinsCount: avgRows.length || totalStudents,
+          averageScore,
+          attendanceLogsCount: sanitizedRecords.reduce((s, r) => s + r.absencesCount + r.latesCount, 0),
+          totalTeachers,
+          totalTeacherHours,
+          totalPayrollFcfa,
+        },
+        records: sanitizedRecords,
+        teacherRecords: sanitizedTeachers,
+      };
+
+      db.archivedYears = db.archivedYears || [];
+      db.archivedYears.unshift(archive);
+      db.counters = db.counters || { cardSeq: 8, receiptSeq: 6 };
+      db.counters.archivesSeeded = true;
+
+      addAuditLog(
+        db,
+        actor,
+        'Archivage manuel année antérieure',
+        'Archive',
+        cleanYear,
+        `Archive ${cleanYear} enregistrée (${totalStudents} élève(s), ${totalTeachers} enseignant(s)).`
+      );
+      saveDatabase(db);
+      res.status(201).json({ archive });
+    }
+  );
 
   app.delete('/api/admin/archives/:id', requireRole(['admin']), (req, res) => {
     const db = loadDatabase();

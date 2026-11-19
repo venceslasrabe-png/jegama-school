@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
+  Archive,
   Award,
   BookOpen,
   Briefcase,
@@ -16,6 +17,7 @@ import {
 } from 'lucide-react';
 import { apiRequest, type AppState, type SessionUser } from './api';
 import { AdminView } from './components/AdminView';
+import { ArchivesView } from './components/ArchivesView';
 import { DashboardView, type NavSection } from './components/DashboardView';
 import { LoginView } from './components/LoginView';
 import { ParentView } from './components/ParentView';
@@ -38,6 +40,7 @@ type MenuKey =
   | 'bulletins'
   | 'enseignants'
   | 'surveillance'
+  | 'archives'
   | 'parent'
   | 'admin';
 
@@ -157,6 +160,7 @@ export default function App() {
     if (key === 'classes' || key === 'notes' || key === 'bulletins') return r === 'secretariat';
     if (key === 'enseignants') return r === 'secretariat' || r === 'caisse';
     if (key === 'surveillance') return r === 'surveillant' || r === 'secretariat';
+    if (key === 'archives') return r === 'scolarite' || r === 'caisse' || r === 'secretariat';
     return false;
   };
 
@@ -235,6 +239,14 @@ export default function App() {
       ),
     },
     {
+      id: 'archives',
+      label: 'Archives',
+      icon: (active) => (
+        <Archive className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
+      ),
+      badge: appState && appState.archivedYears.length > 0 ? appState.archivedYears.length : undefined,
+    },
+    {
       id: 'admin',
       label: 'Administration & Audit',
       icon: (active) => (
@@ -250,6 +262,7 @@ export default function App() {
     else if (sec === 'secretariat') setActiveMenu('notes');
     else if (sec === 'enseignants') setActiveMenu('enseignants');
     else if (sec === 'surveillance') setActiveMenu('surveillance');
+    else if (sec === 'archives') setActiveMenu('archives');
     else if (sec === 'parent') setActiveMenu('parent');
     else if (sec === 'admin') setActiveMenu('admin');
     else setActiveMenu('dashboard');
@@ -570,6 +583,13 @@ export default function App() {
                   state={appState}
                   session={session}
                   initialStudentId={initialParentStudentId}
+                />
+              )}
+              {activeMenu === 'archives' && (
+                <ArchivesView
+                  state={appState}
+                  session={session}
+                  onRefresh={() => fetchState(session)}
                 />
               )}
               {activeMenu === 'admin' && (

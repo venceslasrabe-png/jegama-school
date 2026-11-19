@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { SchoolDatabase } from '../src/types';
-import { createSeedDatabase, ensureTeacherSeedData } from '../src/shared/schoolEngine';
+import { createSeedDatabase, ensureArchiveSeedData, ensureTeacherSeedData } from '../src/shared/schoolEngine';
 
 export {
   addAuditLog,
@@ -12,6 +12,7 @@ export {
   computeStudentBalance,
   createPeriodsForYear,
   createSeedDatabase,
+  ensureArchiveSeedData,
   ensureTeacherSeedData,
   getTeacherCumulativeHours,
   recalculateClassBulletins,
@@ -37,6 +38,7 @@ export function loadDatabase(): SchoolDatabase {
       parsed.archivedYears = [];
     }
     ensureTeacherSeedData(parsed);
+    ensureArchiveSeedData(parsed);
     return parsed;
   } catch {
     const seed = createSeedDatabase();

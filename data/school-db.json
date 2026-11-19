@@ -76,7 +76,7 @@
       "role": "direction",
       "password": "jegama2026",
       "active": true,
-      "lastLogin": "2026-11-18T18:02:51.137Z"
+      "lastLogin": "2026-11-19T10:24:44.838Z"
     },
     {
       "id": "usr-adm",
@@ -85,7 +85,7 @@
       "role": "admin",
       "password": "jegama2026",
       "active": true,
-      "lastLogin": "2026-11-18T17:52:36.250Z"
+      "lastLogin": "2026-11-19T10:24:44.825Z"
     }
   ],
   "periods": [
@@ -1490,6 +1490,83 @@
   ],
   "auditLogs": [
     {
+      "id": "aud-1795083885147-r8bp",
+      "timestamp": "2026-11-19T10:24:45.147Z",
+      "userId": "usr-adm",
+      "userName": "M. Arsène Banzouzi",
+      "userRole": "admin",
+      "action": "Suppression archive",
+      "entityType": "Archive",
+      "entityId": "2023-2024",
+      "details": "Archive 2023-2024 (import_excel) supprimée."
+    },
+    {
+      "id": "aud-1795083885122-r2lm",
+      "timestamp": "2026-11-19T10:24:45.122Z",
+      "userId": "usr-adm",
+      "userName": "M. Arsène Banzouzi",
+      "userRole": "admin",
+      "action": "Complément archive Excel",
+      "entityType": "Archive",
+      "entityId": "2023-2024",
+      "details": "Archive 2023-2024 complétée depuis \"paie-enseignants-2023-2024.xlsx\" (+1 élève(s), +1 enseignant(s))."
+    },
+    {
+      "id": "aud-1795083885104-0w91",
+      "timestamp": "2026-11-19T10:24:45.104Z",
+      "userId": "usr-adm",
+      "userName": "M. Arsène Banzouzi",
+      "userRole": "admin",
+      "action": "Importation archive Excel",
+      "entityType": "Archive",
+      "entityId": "2023-2024",
+      "details": "Archive 2023-2024 importée depuis \"eleves-2023-2024.xlsx\" (1 élève(s), 0 enseignant(s))."
+    },
+    {
+      "id": "aud-1795083544309-mce2",
+      "timestamp": "2026-11-19T10:19:04.309Z",
+      "userId": "usr-adm",
+      "userName": "M. Arsène Banzouzi",
+      "userRole": "admin",
+      "action": "Suppression archive",
+      "entityType": "Archive",
+      "entityId": "2022-2023",
+      "details": "Archive 2022-2023 (import_excel) supprimée."
+    },
+    {
+      "id": "aud-1795083544299-hlgs",
+      "timestamp": "2026-11-19T10:19:04.299Z",
+      "userId": "usr-adm",
+      "userName": "M. Arsène Banzouzi",
+      "userRole": "admin",
+      "action": "Suppression archive",
+      "entityType": "Archive",
+      "entityId": "2023-2024",
+      "details": "Archive 2023-2024 (manuel) supprimée."
+    },
+    {
+      "id": "aud-1795083544273-7nb2",
+      "timestamp": "2026-11-19T10:19:04.273Z",
+      "userId": "usr-adm",
+      "userName": "M. Arsène Banzouzi",
+      "userRole": "admin",
+      "action": "Importation archive Excel",
+      "entityType": "Archive",
+      "entityId": "2022-2023",
+      "details": "Archive 2022-2023 importée depuis \"test-2022-2023.xlsx\" (1 élève(s), 1 enseignant(s))."
+    },
+    {
+      "id": "aud-1795083544261-crvy",
+      "timestamp": "2026-11-19T10:19:04.261Z",
+      "userId": "usr-adm",
+      "userName": "M. Arsène Banzouzi",
+      "userRole": "admin",
+      "action": "Archivage manuel année antérieure",
+      "entityType": "Archive",
+      "entityId": "2023-2024",
+      "details": "Archive 2023-2024 enregistrée (1 élève(s), 1 enseignant(s))."
+    },
+    {
       "id": "aud-1795082137452-51n1",
       "timestamp": "2026-11-19T09:55:37.452Z",
       "userId": "usr-adm",
@@ -1692,9 +1769,252 @@
     "cardSeq": 8,
     "receiptSeq": 7,
     "teacherSeq": 9,
-    "payslipSeq": 8
+    "payslipSeq": 8,
+    "archivesSeeded": true
   },
-  "archivedYears": [],
+  "archivedYears": [
+    {
+      "id": "arch-seed-2025-2026",
+      "academicYear": "2025-2026",
+      "archivedAt": "2026-07-10T16:30:00.000Z",
+      "archivedBy": "M. Arsène Ngakala",
+      "source": "cloture",
+      "notes": "Clôture officielle de l’année académique 2025-2026 — dossiers élèves, scolarité et masse salariale.",
+      "summary": {
+        "totalStudents": 5,
+        "totalExpectedFcfa": 2425000,
+        "totalCollectedFcfa": 2395000,
+        "bulletinsCount": 5,
+        "averageScore": 14.49,
+        "attendanceLogsCount": 8,
+        "totalTeachers": 3,
+        "totalTeacherHours": 1820,
+        "totalPayrollFcfa": 11810000
+      },
+      "records": [
+        {
+          "cardId": "JS-25-0001",
+          "fullName": "MAKOSSO Chloé",
+          "gender": "F",
+          "cycle": "Primaire",
+          "program": "Français",
+          "className": "CM1 A",
+          "parentName": "M. Bienvenu Makosso",
+          "parentPhone": "+242 06 612 45 89",
+          "totalExpectedFcfa": 480000,
+          "totalPaidFcfa": 480000,
+          "balanceRemainingFcfa": 0,
+          "generalAverage": 16.4,
+          "rank": 1,
+          "mention": "Très bien",
+          "absencesCount": 0,
+          "latesCount": 1
+        },
+        {
+          "cardId": "JS-25-0002",
+          "fullName": "TCHICAYA Kévin",
+          "gender": "M",
+          "cycle": "Lycée Général",
+          "program": "Français",
+          "className": "2nde S",
+          "parentName": "Mme Hortense Tchicaya",
+          "parentPhone": "+242 05 534 19 22",
+          "totalExpectedFcfa": 750000,
+          "totalPaidFcfa": 750000,
+          "balanceRemainingFcfa": 0,
+          "generalAverage": 14.55,
+          "rank": 2,
+          "mention": "Bien",
+          "absencesCount": 1,
+          "latesCount": 2
+        },
+        {
+          "cardId": "JS-25-0003",
+          "fullName": "MAKOSSO Grace",
+          "gender": "F",
+          "cycle": "Collège",
+          "program": "Congolais",
+          "className": "5ème A",
+          "parentName": "M. Bienvenu Makosso",
+          "parentPhone": "+242 06 612 45 89",
+          "totalExpectedFcfa": 350000,
+          "totalPaidFcfa": 350000,
+          "balanceRemainingFcfa": 0,
+          "generalAverage": 13.8,
+          "rank": 4,
+          "mention": "Assez bien",
+          "absencesCount": 0,
+          "latesCount": 0
+        },
+        {
+          "cardId": "JS-25-0004",
+          "fullName": "LOUBAKI Samuel",
+          "gender": "M",
+          "cycle": "Lycée Technique",
+          "program": "Congolais",
+          "className": "1ère F2",
+          "parentName": "M. Arsène Loubaki",
+          "parentPhone": "+242 06 811 22 40",
+          "totalExpectedFcfa": 495000,
+          "totalPaidFcfa": 495000,
+          "balanceRemainingFcfa": 0,
+          "generalAverage": 15.1,
+          "rank": 1,
+          "mention": "Bien",
+          "absencesCount": 0,
+          "latesCount": 1
+        },
+        {
+          "cardId": "JS-25-0005",
+          "fullName": "MOUKOKO Prisca",
+          "gender": "F",
+          "cycle": "Collège",
+          "program": "Congolais",
+          "className": "5ème A",
+          "parentName": "M. Patrick Ngoma",
+          "parentPhone": "+242 06 701 33 15",
+          "totalExpectedFcfa": 350000,
+          "totalPaidFcfa": 320000,
+          "balanceRemainingFcfa": 30000,
+          "generalAverage": 12.6,
+          "rank": 8,
+          "mention": "Assez bien",
+          "absencesCount": 2,
+          "latesCount": 1
+        }
+      ],
+      "teacherRecords": [
+        {
+          "matricule": "ENS-25-001",
+          "fullName": "MOUANDA Jean-Claude",
+          "specialty": "Mathématiques",
+          "contractType": "Permanent",
+          "cycles": "Collège, Lycée Général",
+          "hourlyRateFcfa": 6500,
+          "totalHours": 640,
+          "totalPaidFcfa": 4160000
+        },
+        {
+          "matricule": "ENS-25-002",
+          "fullName": "MALONGA Solange",
+          "specialty": "Français & Littérature",
+          "contractType": "Permanent",
+          "cycles": "Primaire, Collège",
+          "hourlyRateFcfa": 5500,
+          "totalHours": 600,
+          "totalPaidFcfa": 3300000
+        },
+        {
+          "matricule": "ENS-25-003",
+          "fullName": "NGOUABI Serge",
+          "specialty": "Sciences Physiques & Électrotechnique",
+          "contractType": "Contractuel",
+          "cycles": "Lycée Technique, Lycée Général",
+          "hourlyRateFcfa": 7500,
+          "totalHours": 580,
+          "totalPaidFcfa": 4350000
+        }
+      ]
+    },
+    {
+      "id": "arch-seed-2024-2025",
+      "academicYear": "2024-2025",
+      "archivedAt": "2025-07-12T15:00:00.000Z",
+      "archivedBy": "M. Arsène Ngakala",
+      "source": "import_excel",
+      "sourceFileName": "archive-jegama-2024-2025.xlsx",
+      "notes": "Archive historique 2024-2025 importée depuis le registre Excel de l’établissement.",
+      "summary": {
+        "totalStudents": 3,
+        "totalExpectedFcfa": 1555000,
+        "totalCollectedFcfa": 1555000,
+        "bulletinsCount": 3,
+        "averageScore": 14.92,
+        "attendanceLogsCount": 5,
+        "totalTeachers": 2,
+        "totalTeacherHours": 1200,
+        "totalPayrollFcfa": 6610000
+      },
+      "records": [
+        {
+          "cardId": "JS-24-0001",
+          "fullName": "MAKOSSO Chloé",
+          "gender": "F",
+          "cycle": "Primaire",
+          "program": "Français",
+          "className": "CE2 A",
+          "parentName": "M. Bienvenu Makosso",
+          "parentPhone": "+242 06 612 45 89",
+          "totalExpectedFcfa": 460000,
+          "totalPaidFcfa": 460000,
+          "balanceRemainingFcfa": 0,
+          "generalAverage": 15.9,
+          "rank": 1,
+          "mention": "Bien",
+          "absencesCount": 1,
+          "latesCount": 0
+        },
+        {
+          "cardId": "JS-24-0002",
+          "fullName": "TCHICAYA Kévin",
+          "gender": "M",
+          "cycle": "Collège",
+          "program": "Français",
+          "className": "3ème A",
+          "parentName": "Mme Hortense Tchicaya",
+          "parentPhone": "+242 05 534 19 22",
+          "totalExpectedFcfa": 620000,
+          "totalPaidFcfa": 620000,
+          "balanceRemainingFcfa": 0,
+          "generalAverage": 14.1,
+          "rank": 3,
+          "mention": "Bien",
+          "absencesCount": 0,
+          "latesCount": 2
+        },
+        {
+          "cardId": "JS-24-0003",
+          "fullName": "LOUBAKI Samuel",
+          "gender": "M",
+          "cycle": "Lycée Technique",
+          "program": "Congolais",
+          "className": "2nde F2",
+          "parentName": "M. Arsène Loubaki",
+          "parentPhone": "+242 06 811 22 40",
+          "totalExpectedFcfa": 475000,
+          "totalPaidFcfa": 475000,
+          "balanceRemainingFcfa": 0,
+          "generalAverage": 14.75,
+          "rank": 2,
+          "mention": "Bien",
+          "absencesCount": 1,
+          "latesCount": 1
+        }
+      ],
+      "teacherRecords": [
+        {
+          "matricule": "ENS-24-001",
+          "fullName": "MOUANDA Jean-Claude",
+          "specialty": "Mathématiques",
+          "contractType": "Permanent",
+          "cycles": "Collège, Lycée Général",
+          "hourlyRateFcfa": 6000,
+          "totalHours": 610,
+          "totalPaidFcfa": 3660000
+        },
+        {
+          "matricule": "ENS-24-002",
+          "fullName": "MALONGA Solange",
+          "specialty": "Français & Littérature",
+          "contractType": "Permanent",
+          "cycles": "Primaire, Collège",
+          "hourlyRateFcfa": 5000,
+          "totalHours": 590,
+          "totalPaidFcfa": 2950000
+        }
+      ]
+    }
+  ],
   "hourlyRates": [
     {
       "id": "rate-mat-cg",

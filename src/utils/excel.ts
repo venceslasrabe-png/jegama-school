@@ -1,5 +1,9 @@
 import * as XLSX from 'xlsx';
-import type { AcademicYearArchive, ArchivedStudentRecord } from '../types';
+import type {
+  AcademicYearArchive,
+  ArchivedStudentRecord,
+  ArchivedTeacherRecord,
+} from '../types';
 
 function normalizeHeader(h: string): string {
   return h
@@ -38,6 +42,8 @@ function getField(row: Record<string, unknown>, candidates: string[]): unknown {
 export async function parseArchiveExcelFile(file: File): Promise<{
   detectedYear: string | null;
   records: ArchivedStudentRecord[];
+  teacherRecords: ArchivedTeacherRecord[];
+  sheetsRead: string[];
 }> {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { type: 'array' });
@@ -45,90 +51,265 @@ export async function parseArchiveExcelFile(file: File): Promise<{
     throw new Error('Le classeur Excel ne contient aucune feuille.');
   }
 
-  // Prefer a sheet containing student details if multi-sheet (like our export)
-  const preferredSheetName =
-    workbook.SheetNames.find((name) => {
-      const n = normalizeHeader(name);
-      return n.includes('eleve') || n.includes('dossier') || n.includes('archive') || n.includes('student');
-    }) || workbook.SheetNames[0];
-
-  const sheet = workbook.Sheets[preferredSheetName];
-  const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
-  if (!rawRows.length) {
-    throw new Error('La feuille Excel sélectionnée est vide.');
+  let detectedYear: string | null = null;
+  const fileYearMatch = file.name.match(/(20\d{2})\D?(20\d{2})/);
+  if (fileYearMatch) {
+    detectedYear = `${fileYearMatch[1]}-${fileYearMatch[2]}`;
   }
-
-  const yearMatch = file.name.match(/(20\d{2})\D?(20\d{2})/);
-  const detectedYear = yearMatch ? `${yearMatch[1]}-${yearMatch[2]}` : null;
 
   const records: ArchivedStudentRecord[] = [];
-  rawRows.forEach((row, idx) => {
-    const rawFullName = getField(row, ['nomcomplet', 'eleve', 'nometprenom', 'fullname', 'student']);
-    const rawLastName = getField(row, ['nom', 'nomdefamille', 'lastname']);
-    const rawFirstName = getField(row, ['prenom', 'prenoms', 'firstname']);
-    const fullName = String(
-      rawFullName || `${rawLastName || ''} ${rawFirstName || ''}`.trim()
-    ).trim();
+  const teacherRecords: ArchivedTeacherRecord[] = [];
+  const sheetsRead: string[] = [];
 
-    if (!fullName) return;
+  const genericSheetNames = new Set([
+    'feuil1',
+    'feuil2',
+    'feuil3',
+    'sheet1',
+    'sheet2',
+    'sheet3',
+    'eleves',
+    'dossierseleves',
+    'dossiers',
+    'archive',
+    'archives',
+    'students',
+    'données',
+    'donnees',
+  ]);
 
-    const cardId = String(
-      getField(row, ['idcarte', 'carte', 'cardid', 'matricule', 'identifiant', 'id']) ||
-        `ARC-${String(idx + 1).padStart(4, '0')}`
-    ).trim();
-    const gender = String(getField(row, ['sexe', 'genre', 'gender']) || '—').trim();
-    const cycle = String(getField(row, ['cycle', 'niveau']) || '—').trim();
-    const program = String(getField(row, ['programme', 'program']) || 'Congolais').trim();
-    const className = String(getField(row, ['classe', 'class', 'classname']) || '—').trim();
-    const parentName = String(getField(row, ['parent', 'tuteur', 'parenttuteur', 'parentname']) || '—').trim();
-    const parentPhone = String(getField(row, ['telephone', 'tel', 'phone', 'contact']) || '—').trim();
+  for (const sheetName of workbook.SheetNames) {
+    const normSheet = normalizeHeader(sheetName);
+    if (
+      normSheet === 'synthese' ||
+      normSheet === 'sommaire' ||
+      normSheet === 'resume' ||
+      normSheet === 'summary'
+    ) {
+      // Still try to extract academic year from summary sheet if not found in filename
+      if (!detectedYear) {
+        const sumSheet = workbook.Sheets[sheetName];
+        const sumRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sumSheet, { defval: '' });
+        for (const r of sumRows) {
+          for (const v of Object.values(r)) {
+            const m = String(v).match(/(20\d{2})\D?(20\d{2})/);
+            if (m) {
+              detectedYear = `${m[1]}-${m[2]}`;
+              break;
+            }
+          }
+          if (detectedYear) break;
+        }
+      }
+      continue;
+    }
 
-    const expected = parseNumberCell(
-      getField(row, ['fraisattendusfcfa', 'fraisattendus', 'attendufcfa', 'attendu', 'totalexpected', 'scolarite'])
-    ) ?? 0;
-    const paid = parseNumberCell(
-      getField(row, ['montantpayefcfa', 'montantpaye', 'payefcfa', 'paye', 'encaisse', 'totalpaid'])
-    ) ?? 0;
-    const balanceRaw = parseNumberCell(
-      getField(row, ['solderestantfcfa', 'solderestant', 'solde', 'restantdu', 'reste'])
+    if (!detectedYear) {
+      const sheetYearMatch = sheetName.match(/(20\d{2})\D?(20\d{2})/);
+      if (sheetYearMatch) {
+        detectedYear = `${sheetYearMatch[1]}-${sheetYearMatch[2]}`;
+      }
+    }
+
+    const sheet = workbook.Sheets[sheetName];
+    const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '' });
+    if (!rawRows.length) continue;
+
+    // Inspect column headers on this sheet to decide if it's teacher/payroll or student data
+    const sampleKeys = Object.keys(rawRows[0] || {}).map((k) => normalizeHeader(k));
+    const isTeacherByName =
+      normSheet.includes('enseignant') ||
+      normSheet.includes('prof') ||
+      normSheet.includes('paie') ||
+      normSheet.includes('teacher') ||
+      normSheet.includes('personnel');
+    const hasTeacherCols = sampleKeys.some(
+      (k) =>
+        k.includes('enseignant') ||
+        k.includes('professeur') ||
+        k.includes('tauxhoraire') ||
+        k.includes('salaire') ||
+        k.includes('cumulheure')
     );
-    const balanceRemainingFcfa = balanceRaw !== null ? balanceRaw : Math.max(0, expected - paid);
-
-    const generalAverage = parseNumberCell(
-      getField(row, ['moyennegenerale20', 'moyennegenerale', 'moyenne', 'average', 'note'])
+    const hasStudentCols = sampleKeys.some(
+      (k) =>
+        k.includes('idcarte') ||
+        k.includes('eleve') ||
+        k.includes('moyenne') ||
+        k.includes('fraisattendus') ||
+        k.includes('parent') ||
+        k.includes('tuteur')
     );
-    const rank = parseNumberCell(getField(row, ['rang', 'classement', 'rank']));
-    const mention = String(getField(row, ['mention', 'appreciation']) || '—').trim();
-    const absencesCount = parseNumberCell(getField(row, ['absences', 'absence', 'absencescount'])) ?? 0;
-    const latesCount = parseNumberCell(getField(row, ['retards', 'retard', 'latescount'])) ?? 0;
 
-    records.push({
-      cardId,
-      fullName,
-      gender,
-      cycle,
-      program,
-      className,
-      parentName,
-      parentPhone,
-      totalExpectedFcfa: expected,
-      totalPaidFcfa: paid,
-      balanceRemainingFcfa,
-      generalAverage,
-      rank,
-      mention,
-      absencesCount,
-      latesCount,
-    });
-  });
+    const treatAsTeacher = (isTeacherByName || hasTeacherCols) && !hasStudentCols;
 
-  if (!records.length) {
+    if (treatAsTeacher) {
+      let countBefore = teacherRecords.length;
+      rawRows.forEach((row, idx) => {
+        const rawFullName = getField(row, [
+          'enseignant',
+          'nomcomplet',
+          'nometprenom',
+          'professeur',
+          'fullname',
+        ]);
+        const rawLastName = getField(row, ['nom', 'nomdefamille', 'lastname']);
+        const rawFirstName = getField(row, ['prenom', 'prenoms', 'firstname']);
+        const fullName = String(
+          rawFullName || `${rawLastName || ''} ${rawFirstName || ''}`.trim()
+        ).trim();
+        if (!fullName) return;
+
+        const matricule = String(
+          getField(row, ['matricule', 'identifiant', 'id']) ||
+            `ENS-ARC-${String(teacherRecords.length + idx + 1).padStart(3, '0')}`
+        ).trim();
+        const specialty = String(
+          getField(row, ['specialite', 'matiere', 'discipline', 'matieres']) || '—'
+        ).trim();
+        const contractType = String(
+          getField(row, ['contrat', 'typecontrat', 'statut']) || 'Permanent'
+        ).trim();
+        const cycles = String(
+          getField(row, ['cycles', 'cycle', 'niveau']) || '—'
+        ).trim();
+        const hourlyRateFcfa =
+          parseNumberCell(getField(row, ['tauxhorairefcfa', 'tauxhoraire', 'taux'])) ?? 0;
+        const totalHours =
+          parseNumberCell(getField(row, ['cumulheures', 'heures', 'totalheures', 'hours'])) ?? 0;
+        const paidRaw = parseNumberCell(
+          getField(row, [
+            'salaireversefcfa',
+            'salaireverse',
+            'salairenet',
+            'salaire',
+            'totalpaye',
+            'montant',
+          ])
+        );
+        const totalPaidFcfa =
+          paidRaw !== null ? paidRaw : Math.round(hourlyRateFcfa * totalHours);
+
+        teacherRecords.push({
+          matricule,
+          fullName,
+          specialty,
+          contractType,
+          cycles,
+          hourlyRateFcfa,
+          totalHours,
+          totalPaidFcfa,
+        });
+      });
+      if (teacherRecords.length > countBefore) {
+        sheetsRead.push(`${sheetName} (enseignants)`);
+      }
+    } else {
+      let countBefore = records.length;
+      const fallbackClass = genericSheetNames.has(normSheet) ? '—' : sheetName;
+      rawRows.forEach((row) => {
+        const rawFullName = getField(row, [
+          'nomcomplet',
+          'eleve',
+          'nometprenom',
+          'fullname',
+          'student',
+        ]);
+        const rawLastName = getField(row, ['nom', 'nomdefamille', 'lastname']);
+        const rawFirstName = getField(row, ['prenom', 'prenoms', 'firstname']);
+        const fullName = String(
+          rawFullName || `${rawLastName || ''} ${rawFirstName || ''}`.trim()
+        ).trim();
+
+        if (!fullName) return;
+
+        const cardId = String(
+          getField(row, ['idcarte', 'carte', 'cardid', 'matricule', 'identifiant', 'id']) ||
+            `ARC-${String(records.length + 1).padStart(4, '0')}`
+        ).trim();
+        const gender = String(getField(row, ['sexe', 'genre', 'gender']) || '—').trim();
+        const cycle = String(getField(row, ['cycle', 'niveau']) || '—').trim();
+        const program = String(getField(row, ['programme', 'program']) || 'Congolais').trim();
+        const className = String(
+          getField(row, ['classe', 'class', 'classname']) || fallbackClass
+        ).trim();
+        const parentName = String(
+          getField(row, ['parent', 'tuteur', 'parenttuteur', 'parentname']) || '—'
+        ).trim();
+        const parentPhone = String(
+          getField(row, ['telephone', 'tel', 'phone', 'contact']) || '—'
+        ).trim();
+
+        const expected =
+          parseNumberCell(
+            getField(row, [
+              'fraisattendusfcfa',
+              'fraisattendus',
+              'attendufcfa',
+              'attendu',
+              'totalexpected',
+              'scolarite',
+              'frais',
+            ])
+          ) ?? 0;
+        const paid =
+          parseNumberCell(
+            getField(row, [
+              'montantpayefcfa',
+              'montantpaye',
+              'payefcfa',
+              'paye',
+              'verse',
+              'encaisse',
+              'totalpaid',
+            ])
+          ) ?? 0;
+        const balanceRaw = parseNumberCell(
+          getField(row, ['solderestantfcfa', 'solderestant', 'solde', 'restantdu', 'reste'])
+        );
+        const balanceRemainingFcfa = balanceRaw !== null ? balanceRaw : Math.max(0, expected - paid);
+
+        const generalAverage = parseNumberCell(
+          getField(row, ['moyennegenerale20', 'moyennegenerale', 'moyenne', 'moy', 'average', 'note'])
+        );
+        const rank = parseNumberCell(getField(row, ['rang', 'classement', 'rank']));
+        const mention = String(getField(row, ['mention', 'appreciation']) || '—').trim();
+        const absencesCount =
+          parseNumberCell(getField(row, ['absences', 'absence', 'absencescount'])) ?? 0;
+        const latesCount = parseNumberCell(getField(row, ['retards', 'retard', 'latescount'])) ?? 0;
+
+        records.push({
+          cardId,
+          fullName,
+          gender,
+          cycle,
+          program,
+          className,
+          parentName,
+          parentPhone,
+          totalExpectedFcfa: expected,
+          totalPaidFcfa: paid,
+          balanceRemainingFcfa: balanceRemainingFcfa,
+          generalAverage,
+          rank,
+          mention,
+          absencesCount,
+          latesCount,
+        });
+      });
+      if (records.length > countBefore) {
+        sheetsRead.push(`${sheetName} (élèves)`);
+      }
+    }
+  }
+
+  if (!records.length && !teacherRecords.length) {
     throw new Error(
-      'Aucune ligne élève exploitable trouvée. Vérifiez que votre fichier contient une colonne « Nom complet » (ou « Nom » / « Prénom »).'
+      'Aucune ligne exploitable trouvée dans le classeur Excel. Vérifiez que votre fichier contient une colonne « Nom complet » (ou « Nom » / « Prénom » / « Enseignant »).'
     );
   }
 
-  return { detectedYear, records };
+  return { detectedYear, records, teacherRecords, sheetsRead };
 }
 
 export function downloadArchiveExcelTemplate(): void {
@@ -171,16 +352,48 @@ export function downloadArchiveExcelTemplate(): void {
     },
   ];
 
+  const teacherSampleRows = [
+    {
+      Matricule: 'ENS-25-001',
+      Enseignant: 'MOUANDA Jean-Claude',
+      Spécialité: 'Mathématiques',
+      Contrat: 'Permanent',
+      Cycles: 'Collège, Lycée Général',
+      'Taux horaire (FCFA)': 6500,
+      'Cumul heures': 640,
+      'Salaire versé (FCFA)': 4160000,
+    },
+    {
+      Matricule: 'ENS-25-002',
+      Enseignant: 'MALONGA Solange',
+      Spécialité: 'Français & Littérature',
+      Contrat: 'Permanent',
+      Cycles: 'Primaire, Collège',
+      'Taux horaire (FCFA)': 5500,
+      'Cumul heures': 600,
+      'Salaire versé (FCFA)': 3300000,
+    },
+  ];
+
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(sampleRows);
+  const wsTeachers = XLSX.utils.json_to_sheet(teacherSampleRows);
   XLSX.utils.book_append_sheet(wb, ws, 'Dossiers élèves');
+  XLSX.utils.book_append_sheet(wb, wsTeachers, 'Corps enseignants');
   XLSX.writeFile(wb, 'modele-archive-jegama-school.xlsx');
 }
 
 export function exportArchiveToExcel(archive: AcademicYearArchive): void {
+  const originLabel =
+    archive.source === 'cloture'
+      ? 'Clôture de fin d’année'
+      : archive.source === 'manuel'
+        ? 'Archivage manuel'
+        : 'Importation Excel';
+
   const summaryRows = [
     { Indicateur: 'Année académique', Valeur: archive.academicYear },
-    { Indicateur: 'Origine', Valeur: archive.source === 'cloture' ? 'Clôture de fin d’année' : 'Importation Excel' },
+    { Indicateur: 'Origine', Valeur: originLabel },
     { Indicateur: 'Date d’archivage', Valeur: new Date(archive.archivedAt).toLocaleString('fr-FR') },
     { Indicateur: 'Archivé par', Valeur: archive.archivedBy },
     { Indicateur: 'Nombre total d’élèves', Valeur: archive.summary.totalStudents },
@@ -189,6 +402,18 @@ export function exportArchiveToExcel(archive: AcademicYearArchive): void {
     {
       Indicateur: 'Moyenne générale établissement (/20)',
       Valeur: archive.summary.averageScore !== null ? archive.summary.averageScore : '—',
+    },
+    {
+      Indicateur: 'Effectif corps enseignants',
+      Valeur: archive.summary.totalTeachers ?? archive.teacherRecords?.length ?? 0,
+    },
+    {
+      Indicateur: 'Cumul heures enseignées',
+      Valeur: archive.summary.totalTeacherHours ?? 0,
+    },
+    {
+      Indicateur: 'Masse salariale versée (FCFA)',
+      Valeur: archive.summary.totalPayrollFcfa ?? 0,
     },
     { Indicateur: 'Observations', Valeur: archive.notes || '—' },
   ];
@@ -217,6 +442,22 @@ export function exportArchiveToExcel(archive: AcademicYearArchive): void {
   const wsStudents = XLSX.utils.json_to_sheet(studentRows);
   XLSX.utils.book_append_sheet(wb, wsSummary, 'Synthèse');
   XLSX.utils.book_append_sheet(wb, wsStudents, 'Dossiers élèves');
+
+  if (archive.teacherRecords && archive.teacherRecords.length > 0) {
+    const teacherRows = archive.teacherRecords.map((t) => ({
+      Matricule: t.matricule,
+      Enseignant: t.fullName,
+      Spécialité: t.specialty,
+      Contrat: t.contractType,
+      Cycles: t.cycles,
+      'Taux horaire (FCFA)': t.hourlyRateFcfa,
+      'Cumul heures': t.totalHours,
+      'Salaire versé (FCFA)': t.totalPaidFcfa,
+    }));
+    const wsTeachers = XLSX.utils.json_to_sheet(teacherRows);
+    XLSX.utils.book_append_sheet(wb, wsTeachers, 'Corps enseignants');
+  }
+
   XLSX.writeFile(wb, `archive-jegama-${archive.academicYear}.xlsx`);
 }
 

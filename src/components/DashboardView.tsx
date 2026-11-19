@@ -1,5 +1,6 @@
 import React from 'react';
 import {
+  Archive,
   ArrowUpRight,
   BookOpen,
   Briefcase,
@@ -20,6 +21,7 @@ export type NavSection =
   | 'secretariat'
   | 'enseignants'
   | 'surveillance'
+  | 'archives'
   | 'parent'
   | 'admin';
 
@@ -64,6 +66,11 @@ export const DashboardView: React.FC<{
           return { allowed: true, modeLabel: 'Consulter', required: '' };
         }
         return { allowed: false, modeLabel: 'Non autorisé', required: 'Surveillant' };
+      case 'archives':
+        if (role === 'secretariat' || role === 'caisse' || role === 'scolarite') {
+          return { allowed: true, modeLabel: 'Consulter & archiver', required: '' };
+        }
+        return { allowed: false, modeLabel: 'Non autorisé', required: 'Administration / Staff' };
       case 'parent':
         if (role === 'parent') {
           return { allowed: true, modeLabel: 'Lecture seule', required: '' };
@@ -118,6 +125,14 @@ export const DashboardView: React.FC<{
       metricLabel: 'Présents aujourd’hui',
       metricValue: `${summary.presentTodayCount} / ${summary.totalStudents} élèves`,
       icon: <UserCheck className="w-5 h-5 text-blue-900" />,
+    },
+    {
+      id: 'archives',
+      title: 'Archives antérieures',
+      subtitle: 'Archivage des années antérieures par importation Excel, consultation et exports PDF.',
+      metricLabel: 'Années archivées',
+      metricValue: `${state.archivedYears.length} exercice(s)`,
+      icon: <Archive className="w-5 h-5 text-blue-900" />,
     },
     {
       id: 'parent',
@@ -203,7 +218,7 @@ export const DashboardView: React.FC<{
         <h2 className="font-display text-base font-semibold text-slate-900 mb-3 sm:mb-4">
           Rubriques de gestion
         </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {modules.map((mod) => {
             const access = canAccess(mod.id);
             return (
