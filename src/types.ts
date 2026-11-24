@@ -1,4 +1,5 @@
 export type UserRole =
+  | 'enseignant'
   | 'scolarite'
   | 'caisse'
   | 'secretariat'
@@ -47,6 +48,14 @@ export interface MentionThreshold {
   minScore: number;
 }
 
+export interface CollectionAutomationSettings {
+  autoNotifyOnOverdue: boolean;
+  primaryChannel: 'whatsapp_et_email' | 'whatsapp' | 'email';
+  followUpDelayDays: number;
+  maxAutoReminders: number;
+  lastAutoRunAt?: string | null;
+}
+
 export interface SchoolSettings {
   schoolName: string;
   address: string;
@@ -58,6 +67,7 @@ export interface SchoolSettings {
   maxParentLoginAttempts: number;
   mentionThresholds: MentionThreshold[];
   lastBackupAt: string | null;
+  collectionAutomation?: CollectionAutomationSettings;
 }
 
 export interface EvaluationPeriod {
@@ -110,6 +120,8 @@ export interface ParentTutor {
   id: string;
   fullName: string;
   phone: string;
+  email?: string;
+  whatsappPhone?: string;
   address: string;
   accessCode: string;
   failedAttempts: number;
@@ -175,6 +187,8 @@ export interface AttendanceLog {
   offlineSynced: boolean;
 }
 
+export type GradeValidationStatus = 'en_attente' | 'valide' | 'rejete';
+
 export interface Grade {
   id: string;
   studentId: string;
@@ -185,6 +199,12 @@ export interface Grade {
   teacherAppreciation: string;
   updatedAt: string;
   updatedBy: string;
+  validationStatus?: GradeValidationStatus;
+  submittedAt?: string | null;
+  submittedBy?: string | null;
+  validatedAt?: string | null;
+  validatedBy?: string | null;
+  rejectionReason?: string | null;
 }
 
 export interface Bulletin {
@@ -352,6 +372,73 @@ export interface TeacherHourLog {
   createdAt: string;
 }
 
+export type ReminderChannel =
+  | 'Appel téléphonique'
+  | 'SMS / WhatsApp'
+  | 'Courrier / Convocation'
+  | 'Email';
+
+export type ReminderStatus =
+  | 'relance_1'
+  | 'relance_2'
+  | 'mise_en_demeure'
+  | 'moratoire'
+  | 'resolu';
+
+export interface CollectionReminder {
+  id: string;
+  studentId: string;
+  parentId: string;
+  channel: ReminderChannel;
+  status: ReminderStatus;
+  amountDueFcfa: number;
+  overdueFcfa: number;
+  promisedDate: string | null;
+  notes: string;
+  sentAt: string;
+  sentBy: string;
+  recipientContact?: string;
+  messageBody?: string;
+  deliveryState?: 'envoye' | 'planifie' | 'echec';
+  isAutomatic?: boolean;
+  sequenceStep?: number;
+  nextFollowUpAt?: string | null;
+}
+
+export interface StudentFollowUpPlan {
+  actionNeeded: 'none' | 'initial_alert' | 'followup_j3' | 'moratoire_paused';
+  nextStep: number;
+  nextStatus: ReminderStatus;
+  daysSinceLastReminder: number | null;
+  nextFollowUpDueAt: string | null;
+  reasonLabel: string;
+}
+
+export interface StudentInstallmentBreakdown {
+  label: string;
+  dueDate: string;
+  amount: number;
+  paidForInstallment: number;
+  remainingForInstallment: number;
+  settled: boolean;
+  isOverdue: boolean;
+  daysOverdue: number;
+}
+
+export interface StudentRecoveryProfile {
+  expected: number;
+  paid: number;
+  remaining: number;
+  overdueFcfa: number;
+  daysOverdue: number;
+  recoveryRatePercent: number;
+  status: PaymentStatus;
+  nextDueDate: string | null;
+  nextDueLabel: string | null;
+  nextDueAmount: number;
+  installmentBreakdown: StudentInstallmentBreakdown[];
+}
+
 export interface SchoolDatabase {
   settings: SchoolSettings;
   users: UserAccount[];
@@ -367,6 +454,7 @@ export interface SchoolDatabase {
   teacherPayslips: TeacherPayslip[];
   paymentNotifications: PaymentNotification[];
   payments: Payment[];
+  collectionReminders?: CollectionReminder[];
   attendanceLogs: AttendanceLog[];
   grades: Grade[];
   bulletins: Bulletin[];
@@ -378,6 +466,8 @@ export interface SchoolDatabase {
     teacherSeq?: number;
     payslipSeq?: number;
     archivesSeeded?: boolean;
+    gradeWorkflowSeeded?: boolean;
+    collectionRemindersSeeded?: boolean;
   };
 }
 
@@ -395,4 +485,9 @@ export interface DashboardSummary {
   bulletinsToDeliverCount: number;
   activeTeachersCount: number;
   monthlyPayrollFcfa: number;
+  pendingGradesCount?: number;
+  totalOverdueFcfa?: number;
+  overdueStudentsCount?: number;
+  activeMoratoiresCount?: number;
+  pendingFollowUpsCount?: number;
 }

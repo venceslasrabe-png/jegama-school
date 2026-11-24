@@ -6,16 +6,23 @@ import { createServer as createViteServer } from 'vite';
 import {
   addAuditLog,
   buildAcademicYearArchive,
+  buildMailtoLaunchUrl,
+  buildReminderMessageText,
   buildTeacherPayslip,
+  buildWhatsappLaunchUrl,
   computeDashboardSummary,
   computeStudentBalance,
+  computeStudentRecoveryProfile,
   createPeriodsForYear,
   createSeedDatabase,
   ensureArchiveSeedData,
   ensureTeacherSeedData,
+  evaluateStudentAutoFollowUp,
+  getDefaultCollectionAutomation,
   getTeacherCumulativeHours,
   loadDatabase,
   recalculateClassBulletins,
+  runAutomaticOverdueNotifications,
   saveDatabase,
 } from './server/db';
 import type {
@@ -23,6 +30,8 @@ import type {
   ArchivedStudentRecord,
   ArchivedTeacherRecord,
   AttendanceLog,
+  CollectionAutomationSettings,
+  CollectionReminder,
   CycleHourlyRate,
   FeeGridItem,
   Grade,
@@ -31,6 +40,8 @@ import type {
   PaymentNotification,
   PayslipPaymentMethod,
   PayslipStatus,
+  ReminderChannel,
+  ReminderStatus,
   SchoolClass,
   SchoolDatabase,
   Student,
@@ -115,8 +126,13 @@ function sanitizeDbForClient(db: SchoolDatabase, actor: ActorContext | null) {
       teacherPayslips: [],
       paymentNotifications: [],
       payments: db.payments.filter((p) => myStudentIds.has(p.studentId)),
+      collectionReminders: [],
       attendanceLogs: db.attendanceLogs.filter((a) => myStudentIds.has(a.studentId)),
-      grades: db.grades.filter((g) => myStudentIds.has(g.studentId)),
+      grades: db.grades.filter(
+        (g) =>
+          myStudentIds.has(g.studentId) &&
+          (!g.validationStatus || g.validationStatus === 'valide')
+      ),
       bulletins: db.bulletins.filter(
         (b) => myStudentIds.has(b.studentId) && b.deliveryStatus !== 'a_editer'
       ),
@@ -141,6 +157,7 @@ function sanitizeDbForClient(db: SchoolDatabase, actor: ActorContext | null) {
     teacherPayslips: db.teacherPayslips || [],
     paymentNotifications: db.paymentNotifications,
     payments: db.payments,
+    collectionReminders: db.collectionReminders || [],
     attendanceLogs: db.attendanceLogs,
     grades: db.grades,
     bulletins: db.bulletins,
@@ -251,15 +268,19 @@ async function startServer() {
   app.post('/api/parents', requireRole(['scolarite', 'admin']), (req, res) => {
     const db = loadDatabase();
     const actor = getActor(req, db)!;
-    const { fullName, phone, address, accessCode } = req.body as Partial<ParentTutor>;
+    const { fullName, phone, email, whatsappPhone, address, accessCode } =
+      req.body as Partial<ParentTutor>;
     if (!fullName || !phone) {
       res.status(400).json({ error: 'Nom complet et téléphone requis.' });
       return;
     }
+    const cleanPhone = phone.trim();
     const parent: ParentTutor = {
       id: `par-${Date.now()}`,
       fullName: fullName.trim(),
-      phone: phone.trim(),
+      phone: cleanPhone,
+      email: (email || '').trim(),
+      whatsappPhone: (whatsappPhone || cleanPhone).trim(),
       address: (address || '').trim(),
       accessCode: (accessCode || String(Math.floor(1000 + Math.random() * 9000))).trim(),
       failedAttempts: 0,
@@ -271,11 +292,52 @@ async function startServer() {
     res.status(201).json({ parent });
   });
 
+  app.put('/api/parents/:id', requireRole(['scolarite', 'caisse', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const idx = db.parents.findIndex((p) => p.id === req.params.id);
+    if (idx < 0) {
+      res.status(404).json({ error: 'Parent / tuteur introuvable.' });
+      return;
+    }
+    const existing = db.parents[idx];
+    const updates = req.body as Partial<ParentTutor>;
+    const updatedPhone = updates.phone !== undefined ? updates.phone.trim() : existing.phone;
+    db.parents[idx] = {
+      ...existing,
+      fullName: updates.fullName !== undefined ? updates.fullName.trim() : existing.fullName,
+      phone: updatedPhone,
+      email: updates.email !== undefined ? updates.email.trim() : existing.email || '',
+      whatsappPhone:
+        updates.whatsappPhone !== undefined
+          ? updates.whatsappPhone.trim()
+          : existing.whatsappPhone || updatedPhone,
+      address: updates.address !== undefined ? updates.address.trim() : existing.address,
+    };
+    addAuditLog(
+      db,
+      actor,
+      'Mise à jour coordonnées parent',
+      'Parent',
+      existing.id,
+      `${db.parents[idx].fullName} (${db.parents[idx].phone}${db.parents[idx].email ? ` · ${db.parents[idx].email}` : ''})`
+    );
+    saveDatabase(db);
+    res.json({ parent: db.parents[idx] });
+  });
+
   app.post('/api/students', requireRole(['scolarite', 'admin']), (req, res) => {
     const db = loadDatabase();
     const actor = getActor(req, db)!;
     const body = req.body as Partial<Student> & {
-      newParent?: { fullName: string; phone: string; address: string; accessCode?: string };
+      newParent?: {
+        fullName: string;
+        phone: string;
+        email?: string;
+        whatsappPhone?: string;
+        address: string;
+        accessCode?: string;
+      };
     };
 
     if (!body.firstName || !body.lastName || !body.cycle || !body.program) {
@@ -285,10 +347,13 @@ async function startServer() {
 
     let parentId = body.parentId;
     if (!parentId && body.newParent?.fullName) {
+      const cleanPhone = (body.newParent.phone || '').trim();
       const newParent: ParentTutor = {
         id: `par-${Date.now()}`,
         fullName: body.newParent.fullName.trim(),
-        phone: (body.newParent.phone || '').trim(),
+        phone: cleanPhone,
+        email: (body.newParent.email || '').trim(),
+        whatsappPhone: (body.newParent.whatsappPhone || cleanPhone).trim(),
         address: (body.newParent.address || '').trim(),
         accessCode: (
           body.newParent.accessCode || String(Math.floor(1000 + Math.random() * 9000))
@@ -592,6 +657,342 @@ async function startServer() {
     res.status(201).json({ payment, balance: bal });
   });
 
+  // --- RECOUVREMENT: RELANCES, WHATSAPP / EMAIL & MORATOIRES ---
+  app.post('/api/recouvrement/reminders', requireRole(['caisse', 'scolarite', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const { studentId, channel, status, promisedDate, notes } = req.body as {
+      studentId?: string;
+      channel?: ReminderChannel;
+      status?: ReminderStatus;
+      promisedDate?: string | null;
+      notes?: string;
+    };
+
+    const student = db.students.find((s) => s.id === studentId);
+    if (!student) {
+      res.status(404).json({ error: 'Élève introuvable.' });
+      return;
+    }
+    const cleanNotes = (notes || '').trim();
+    if (!cleanNotes) {
+      res.status(400).json({ error: 'Veuillez saisir un compte rendu ou motif pour la relance.' });
+      return;
+    }
+    const validChannels: ReminderChannel[] = [
+      'Appel téléphonique',
+      'SMS / WhatsApp',
+      'Courrier / Convocation',
+      'Email',
+    ];
+    const finalChannel: ReminderChannel =
+      channel && validChannels.includes(channel) ? channel : 'Appel téléphonique';
+    const validStatuses: ReminderStatus[] = [
+      'relance_1',
+      'relance_2',
+      'mise_en_demeure',
+      'moratoire',
+      'resolu',
+    ];
+    const finalStatus: ReminderStatus =
+      status && validStatuses.includes(status) ? status : 'relance_1';
+
+    const cleanPromised = promisedDate ? promisedDate.trim() : null;
+    if (finalStatus === 'moratoire' && !cleanPromised) {
+      res.status(400).json({
+        error: 'Veuillez indiquer la date limite promise pour l’accord de moratoire.',
+      });
+      return;
+    }
+
+    const parent = db.parents.find((p) => p.id === student.parentId);
+    const delayDays = Math.max(
+      1,
+      Number(db.settings.collectionAutomation?.followUpDelayDays) || 3
+    );
+    const sequenceStep =
+      finalStatus === 'relance_1'
+        ? 1
+        : finalStatus === 'relance_2'
+          ? 2
+          : finalStatus === 'mise_en_demeure'
+            ? 3
+            : 1;
+    const nowIso = new Date().toISOString();
+    const nextFollowUpAt =
+      finalStatus === 'moratoire'
+        ? cleanPromised
+        : finalStatus === 'resolu'
+          ? null
+          : new Date(Date.now() + delayDays * 86400000).toISOString();
+    const recipientContact =
+      finalChannel === 'Email'
+        ? parent?.email || parent?.phone || ''
+        : parent?.whatsappPhone || parent?.phone || '';
+
+    const profile = computeStudentRecoveryProfile(db, student);
+    const reminder: CollectionReminder = {
+      id: `rem-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      studentId: student.id,
+      parentId: student.parentId,
+      channel: finalChannel,
+      status: finalStatus,
+      amountDueFcfa: profile.remaining,
+      overdueFcfa: profile.overdueFcfa,
+      promisedDate: cleanPromised,
+      notes: cleanNotes,
+      sentAt: nowIso,
+      sentBy: actor.fullName,
+      recipientContact,
+      messageBody: cleanNotes,
+      deliveryState: 'envoye',
+      isAutomatic: false,
+      sequenceStep,
+      nextFollowUpAt,
+    };
+
+    db.collectionReminders = db.collectionReminders || [];
+    db.collectionReminders.unshift(reminder);
+
+    const statusLabels: Record<ReminderStatus, string> = {
+      relance_1: '1ère relance',
+      relance_2: '2ème relance',
+      mise_en_demeure: 'Mise en demeure',
+      moratoire: 'Moratoire accordé',
+      resolu: 'Dossier régularisé',
+    };
+
+    addAuditLog(
+      db,
+      actor,
+      finalStatus === 'moratoire' ? 'Accord de moratoire' : 'Relance de recouvrement',
+      'Recouvrement',
+      student.cardId,
+      `${statusLabels[finalStatus]} (${finalChannel}) pour ${student.firstName} ${student.lastName} — Reste dû : ${profile.remaining} FCFA (Échu : ${profile.overdueFcfa} FCFA)${cleanPromised ? ` · Échéance promise : ${cleanPromised}` : ''}.`
+    );
+    saveDatabase(db);
+    res.status(201).json({ reminder });
+  });
+
+  app.post('/api/recouvrement/send-message', requireRole(['caisse', 'scolarite', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const { studentId, channel, customMessage, status } = req.body as {
+      studentId?: string;
+      channel?: 'whatsapp' | 'email' | 'whatsapp_et_email';
+      customMessage?: string;
+      status?: ReminderStatus;
+    };
+
+    const student = db.students.find((s) => s.id === studentId);
+    if (!student) {
+      res.status(404).json({ error: 'Élève introuvable.' });
+      return;
+    }
+
+    const parent = db.parents.find((p) => p.id === student.parentId);
+    const phone = (parent?.whatsappPhone || parent?.phone || '').trim();
+    const email = (parent?.email || '').trim();
+    const auto = db.settings.collectionAutomation || getDefaultCollectionAutomation();
+    const sendChannel = channel || auto.primaryChannel || 'whatsapp_et_email';
+
+    if (sendChannel === 'whatsapp' && !phone) {
+      res.status(400).json({ error: 'Aucun numéro WhatsApp/téléphone renseigné pour ce parent.' });
+      return;
+    }
+    if (sendChannel === 'email' && !email) {
+      res.status(400).json({ error: 'Aucune adresse e-mail renseignée pour ce parent.' });
+      return;
+    }
+    if (sendChannel === 'whatsapp_et_email' && !phone && !email) {
+      res.status(400).json({ error: 'Aucun numéro WhatsApp ni adresse e-mail renseigné pour ce parent.' });
+      return;
+    }
+
+    const delayDays = Math.max(1, Number(auto.followUpDelayDays) || 3);
+    const plan = evaluateStudentAutoFollowUp(db, student);
+    const profile = computeStudentRecoveryProfile(db, student);
+    const step = plan.nextStep > 0 ? plan.nextStep : 1;
+    const validManualStatuses: ReminderStatus[] = ['relance_1', 'relance_2', 'mise_en_demeure'];
+    const finalStatus: ReminderStatus =
+      status && validManualStatuses.includes(status)
+        ? status
+        : plan.nextStatus === 'resolu'
+          ? 'relance_1'
+          : plan.nextStatus;
+
+    const messageBody =
+      (customMessage || '').trim() ||
+      buildReminderMessageText({
+        student,
+        parent,
+        profile,
+        schoolName: db.settings.schoolName,
+        step,
+        delayDays,
+      });
+
+    const subject = `${db.settings.schoolName} · ${
+      step >= 2 ? `Relance J+${delayDays} scolarité` : 'Avis de retard de scolarité'
+    } — ${student.firstName} ${student.lastName}`;
+
+    const whatsappUrl =
+      sendChannel === 'whatsapp' || sendChannel === 'whatsapp_et_email'
+        ? buildWhatsappLaunchUrl(phone, messageBody)
+        : null;
+    const mailtoUrl =
+      sendChannel === 'email' || sendChannel === 'whatsapp_et_email'
+        ? buildMailtoLaunchUrl(email, subject, messageBody)
+        : null;
+
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const nextFollowUpAt = new Date(nowMs + delayDays * 86400000).toISOString();
+    const targets: Array<{ channel: ReminderChannel; contact: string }> = [];
+    if ((sendChannel === 'whatsapp' || sendChannel === 'whatsapp_et_email') && phone) {
+      targets.push({ channel: 'SMS / WhatsApp', contact: phone });
+    }
+    if ((sendChannel === 'email' || sendChannel === 'whatsapp_et_email') && email) {
+      targets.push({ channel: 'Email', contact: email });
+    }
+
+    db.collectionReminders = db.collectionReminders || [];
+    const created: CollectionReminder[] = targets.map((target, idx) => {
+      const rem: CollectionReminder = {
+        id: `rem-msg-${nowMs}-${idx}-${Math.random().toString(36).slice(2, 5)}`,
+        studentId: student.id,
+        parentId: student.parentId,
+        channel: target.channel,
+        status: finalStatus,
+        amountDueFcfa: profile.remaining,
+        overdueFcfa: profile.overdueFcfa,
+        promisedDate: null,
+        notes: `${
+          step >= 2 ? `Relance J+${delayDays}` : `1er avis de retard (relance prévue à J+${delayDays})`
+        } envoyé via ${target.channel} à ${target.contact}.`,
+        sentAt: nowIso,
+        sentBy: actor.fullName,
+        recipientContact: target.contact,
+        messageBody,
+        deliveryState: 'envoye',
+        isAutomatic: false,
+        sequenceStep: step,
+        nextFollowUpAt,
+      };
+      db.collectionReminders!.unshift(rem);
+      return rem;
+    });
+
+    addAuditLog(
+      db,
+      actor,
+      step >= 2 ? `Relance WhatsApp/Email (J+${delayDays})` : 'Envoi avis retard WhatsApp/Email',
+      'Recouvrement',
+      student.cardId,
+      `${student.firstName} ${student.lastName} · Canaux : ${targets.map((t) => `${t.channel} (${t.contact})`).join(' + ')} · Prochaine relance : ${nextFollowUpAt.slice(0, 10)}.`
+    );
+    saveDatabase(db);
+
+    if (process.env.COLLECTION_WEBHOOK_URL) {
+      try {
+        void fetch(process.env.COLLECTION_WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event: 'collection_message',
+            school: db.settings.schoolName,
+            studentId: student.id,
+            cardId: student.cardId,
+            parentName: parent?.fullName || '',
+            phone,
+            email,
+            step,
+            messageBody,
+          }),
+        }).catch(() => {});
+      } catch {
+        // Non-blocking optional webhook
+      }
+    }
+
+    res.status(201).json({ reminders: created, whatsappUrl, mailtoUrl });
+  });
+
+  app.post('/api/recouvrement/run-auto', requireRole(['caisse', 'scolarite', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const { studentIds } = (req.body || {}) as { studentIds?: string[] };
+    const result = runAutomaticOverdueNotifications(db, actor, { studentIds });
+    saveDatabase(db);
+
+    if (process.env.COLLECTION_WEBHOOK_URL && result.reminders.length > 0) {
+      try {
+        void fetch(process.env.COLLECTION_WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            event: 'collection_auto_batch',
+            school: db.settings.schoolName,
+            dispatchedCount: result.dispatchedCount,
+            reminders: result.reminders,
+          }),
+        }).catch(() => {});
+      } catch {
+        // Non-blocking optional webhook
+      }
+    }
+
+    res.json(result);
+  });
+
+  app.put('/api/recouvrement/automation-settings', requireRole(['caisse', 'scolarite', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const body = req.body as Partial<CollectionAutomationSettings>;
+    const current = db.settings.collectionAutomation || getDefaultCollectionAutomation();
+
+    const validChannels: CollectionAutomationSettings['primaryChannel'][] = [
+      'whatsapp_et_email',
+      'whatsapp',
+      'email',
+    ];
+    const delayDays = Math.min(
+      30,
+      Math.max(1, Math.round(Number(body.followUpDelayDays ?? current.followUpDelayDays) || 3))
+    );
+    const maxAutoReminders = Math.min(
+      10,
+      Math.max(1, Math.round(Number(body.maxAutoReminders ?? current.maxAutoReminders) || 3))
+    );
+    const primaryChannel =
+      body.primaryChannel && validChannels.includes(body.primaryChannel)
+        ? body.primaryChannel
+        : current.primaryChannel;
+
+    const updated: CollectionAutomationSettings = {
+      autoNotifyOnOverdue:
+        typeof body.autoNotifyOnOverdue === 'boolean'
+          ? body.autoNotifyOnOverdue
+          : current.autoNotifyOnOverdue,
+      primaryChannel,
+      followUpDelayDays: delayDays,
+      maxAutoReminders,
+      lastAutoRunAt: current.lastAutoRunAt ?? null,
+    };
+
+    db.settings.collectionAutomation = updated;
+    addAuditLog(
+      db,
+      actor,
+      'Configuration relances automatiques',
+      'Recouvrement',
+      'automation',
+      `Envoi auto : ${updated.autoNotifyOnOverdue ? 'Activé' : 'Désactivé'} · Canal : ${updated.primaryChannel} · Délai de relance : J+${updated.followUpDelayDays}.`
+    );
+    saveDatabase(db);
+    res.json({ collectionAutomation: updated });
+  });
+
   // --- SECRETARIAT ACADEMIQUE: CLASSES, SUBJECTS, PERIODS, GRADES, BULLETINS ---
   app.post('/api/classes', requireRole(['secretariat', 'admin']), (req, res) => {
     const db = loadDatabase();
@@ -674,7 +1075,7 @@ async function startServer() {
     res.json({ period });
   });
 
-  app.post('/api/grades', requireRole(['secretariat', 'admin']), (req, res) => {
+  app.post('/api/grades', requireRole(['enseignant', 'secretariat', 'admin']), (req, res) => {
     const db = loadDatabase();
     const actor = getActor(req, db)!;
     const { studentId, subjectId, periodId, values, teacherAppreciation, overrideReason } = req.body as {
@@ -686,6 +1087,16 @@ async function startServer() {
       overrideReason?: string;
     };
 
+    const student = db.students.find((s) => s.id === studentId);
+    if (!student) {
+      res.status(404).json({ error: 'Élève introuvable.' });
+      return;
+    }
+    const subject = db.subjects.find((sub) => sub.id === subjectId);
+    if (!subject) {
+      res.status(404).json({ error: 'Matière introuvable.' });
+      return;
+    }
     const period = db.periods.find((p) => p.id === periodId);
     if (!period) {
       res.status(404).json({ error: 'Période introuvable.' });
@@ -718,6 +1129,7 @@ async function startServer() {
       (g) => g.studentId === studentId && g.subjectId === subjectId && g.periodId === periodId
     );
     const oldAvg = existingIdx >= 0 ? db.grades[existingIdx].average : null;
+    const now = new Date().toISOString();
 
     const record: Grade = {
       id: existingIdx >= 0 ? db.grades[existingIdx].id : `grd-${Date.now()}`,
@@ -727,16 +1139,20 @@ async function startServer() {
       values: cleanValues,
       average: avg,
       teacherAppreciation: (teacherAppreciation || '').trim(),
-      updatedAt: new Date().toISOString(),
+      updatedAt: now,
       updatedBy: actor.fullName,
+      validationStatus: 'en_attente',
+      submittedAt: now,
+      submittedBy: actor.fullName,
+      validatedAt: null,
+      validatedBy: null,
+      rejectionReason: null,
     };
 
     if (existingIdx >= 0) db.grades[existingIdx] = record;
     else db.grades.push(record);
 
-    const student = db.students.find((s) => s.id === studentId);
-    const subject = db.subjects.find((sub) => sub.id === subjectId);
-    if (student?.classId) {
+    if (student.classId) {
       recalculateClassBulletins(db, student.classId, periodId);
     }
 
@@ -747,7 +1163,16 @@ async function startServer() {
         'Correction note après verrouillage',
         'Note',
         record.id,
-        `${student?.firstName} ${student?.lastName} · ${subject?.name} (${period.label}) : ${oldAvg ?? '—'} -> ${avg}/20. Motif : ${overrideReason}`
+        `${student.firstName} ${student.lastName} · ${subject.name} (${period.label}) : ${oldAvg ?? '—'} -> ${avg}/20. Motif : ${overrideReason}`
+      );
+    } else {
+      addAuditLog(
+        db,
+        actor,
+        'Enregistrement note (en attente)',
+        'Note',
+        record.id,
+        `${student.firstName} ${student.lastName} · ${subject.name} (${period.label}) : ${avg}/20 — En attente de validation Scolarité.`
       );
     }
 
@@ -755,7 +1180,7 @@ async function startServer() {
     res.json({ grade: record });
   });
 
-  app.post('/api/grades/batch', requireRole(['secretariat', 'admin']), (req, res) => {
+  app.post('/api/grades/batch', requireRole(['enseignant', 'secretariat', 'admin']), (req, res) => {
     const db = loadDatabase();
     const actor = getActor(req, db)!;
     const { periodId, entries, overrideReason } = req.body as {
@@ -854,6 +1279,12 @@ async function startServer() {
         teacherAppreciation: entry.teacherAppreciation,
         updatedAt: now,
         updatedBy: actor.fullName,
+        validationStatus: 'en_attente',
+        submittedAt: now,
+        submittedBy: actor.fullName,
+        validatedAt: null,
+        validatedBy: null,
+        rejectionReason: null,
       };
 
       if (existingIdx >= 0) db.grades[existingIdx] = record;
@@ -885,17 +1316,137 @@ async function startServer() {
     addAuditLog(
       db,
       actor,
-      'Enregistrement groupé de notes',
+      'Enregistrement groupé de notes (en attente)',
       'Note',
       periodId,
-      `${savedGrades.length} fiche(s) de notes enregistrée(s) pour la période ${period.label}.`
+      `${savedGrades.length} fiche(s) de notes enregistrée(s) pour la période ${period.label} — En attente de validation Scolarité.`
     );
 
     saveDatabase(db);
     res.json({ savedCount: savedGrades.length, grades: savedGrades });
   });
 
-  app.delete('/api/grades/:id', requireRole(['secretariat', 'admin']), (req, res) => {
+  app.post('/api/grades/validate-batch', requireRole(['scolarite', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const { gradeIds, decision, reason } = req.body as {
+      gradeIds: string[];
+      decision: 'valide' | 'rejete';
+      reason?: string;
+    };
+
+    if (decision !== 'valide' && decision !== 'rejete') {
+      res.status(400).json({ error: 'Décision de validation invalide.' });
+      return;
+    }
+    if (!Array.isArray(gradeIds) || gradeIds.length === 0) {
+      res.status(400).json({ error: 'Aucune note sélectionnée pour la validation.' });
+      return;
+    }
+    const cleanReason = (reason || '').trim();
+    if (decision === 'rejete' && !cleanReason) {
+      res.status(400).json({
+        error: 'Veuillez préciser le motif du rejet afin que l’enseignant puisse corriger la note.',
+      });
+      return;
+    }
+
+    const idSet = new Set(gradeIds);
+    const now = new Date().toISOString();
+    const updatedGrades: Grade[] = [];
+    const impactedPairs = new Set<string>();
+
+    for (const grade of db.grades) {
+      if (!idSet.has(grade.id)) continue;
+      grade.validationStatus = decision;
+      grade.validatedAt = now;
+      grade.validatedBy = actor.fullName;
+      grade.rejectionReason = decision === 'rejete' ? cleanReason : null;
+      updatedGrades.push(grade);
+
+      const stu = db.students.find((s) => s.id === grade.studentId);
+      if (stu?.classId) {
+        impactedPairs.add(`${stu.classId}::${grade.periodId}`);
+      }
+    }
+
+    if (updatedGrades.length === 0) {
+      res.status(404).json({ error: 'Aucune note correspondante trouvée.' });
+      return;
+    }
+
+    for (const pair of impactedPairs) {
+      const [classId, pId] = pair.split('::');
+      recalculateClassBulletins(db, classId, pId);
+    }
+
+    addAuditLog(
+      db,
+      actor,
+      decision === 'valide' ? 'Validation groupée des notes' : 'Rejet groupé de notes',
+      'Note',
+      'batch',
+      `${updatedGrades.length} fiche(s) de notes ${decision === 'valide' ? 'validée(s)' : 'rejetée(s)'} par la Scolarité${decision === 'rejete' ? `. Motif : ${cleanReason}` : '.'}`
+    );
+
+    saveDatabase(db);
+    res.json({ updatedCount: updatedGrades.length, grades: updatedGrades });
+  });
+
+  app.post('/api/grades/:id/validate', requireRole(['scolarite', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const grade = db.grades.find((g) => g.id === req.params.id);
+    if (!grade) {
+      res.status(404).json({ error: 'Note introuvable.' });
+      return;
+    }
+
+    const { decision, reason } = req.body as {
+      decision: 'valide' | 'rejete';
+      reason?: string;
+    };
+
+    if (decision !== 'valide' && decision !== 'rejete') {
+      res.status(400).json({ error: 'Décision de validation invalide.' });
+      return;
+    }
+    const cleanReason = (reason || '').trim();
+    if (decision === 'rejete' && !cleanReason) {
+      res.status(400).json({
+        error: 'Veuillez préciser le motif du rejet afin que l’enseignant puisse corriger la note.',
+      });
+      return;
+    }
+
+    const now = new Date().toISOString();
+    grade.validationStatus = decision;
+    grade.validatedAt = now;
+    grade.validatedBy = actor.fullName;
+    grade.rejectionReason = decision === 'rejete' ? cleanReason : null;
+
+    const stu = db.students.find((s) => s.id === grade.studentId);
+    const sub = db.subjects.find((s) => s.id === grade.subjectId);
+    const period = db.periods.find((p) => p.id === grade.periodId);
+
+    if (stu?.classId) {
+      recalculateClassBulletins(db, stu.classId, grade.periodId);
+    }
+
+    addAuditLog(
+      db,
+      actor,
+      decision === 'valide' ? 'Validation de note' : 'Rejet de note',
+      'Note',
+      grade.id,
+      `${stu?.firstName || ''} ${stu?.lastName || ''} · ${sub?.name || ''} (${period?.label || grade.periodId}) : ${grade.average}/20 ${decision === 'valide' ? 'validée' : `rejetée — Motif : ${cleanReason}`}`
+    );
+
+    saveDatabase(db);
+    res.json({ grade });
+  });
+
+  app.delete('/api/grades/:id', requireRole(['enseignant', 'secretariat', 'scolarite', 'admin']), (req, res) => {
     const db = loadDatabase();
     const actor = getActor(req, db)!;
     const idx = db.grades.findIndex((g) => g.id === req.params.id);
@@ -905,6 +1456,13 @@ async function startServer() {
     }
 
     const existing = db.grades[idx];
+    if (actor.role === 'enseignant' && (!existing.validationStatus || existing.validationStatus === 'valide')) {
+      res.status(403).json({
+        error: 'Impossible de supprimer une note déjà validée par la Scolarité.',
+      });
+      return;
+    }
+
     const period = db.periods.find((p) => p.id === existing.periodId);
     const reason = String((req.body as { overrideReason?: string })?.overrideReason || '').trim();
     if (period?.status === 'verrouille' && !reason) {
@@ -2214,6 +2772,28 @@ async function startServer() {
   app.listen(port, '0.0.0.0', () => {
     console.log(`Jegama Scool serveur actif sur http://0.0.0.0:${port}`);
   });
+
+  // Periodic J+3 overdue notification check (runs every 15 minutes when autoNotifyOnOverdue is enabled)
+  const autoCheckTimer = setInterval(() => {
+    try {
+      const currentDb = loadDatabase();
+      if (!currentDb.settings.collectionAutomation?.autoNotifyOnOverdue) return;
+      const summary = computeDashboardSummary(currentDb);
+      if ((summary.pendingFollowUpsCount || 0) === 0) return;
+      const systemActor = {
+        id: 'usr-system-recouvrement',
+        fullName: 'Automate Recouvrement J+3',
+        role: 'admin' as UserRole,
+      };
+      const autoRes = runAutomaticOverdueNotifications(currentDb, systemActor);
+      if (autoRes.dispatchedCount > 0) {
+        saveDatabase(currentDb);
+      }
+    } catch {
+      // Ignore periodic scheduler errors
+    }
+  }, 15 * 60 * 1000);
+  autoCheckTimer.unref?.();
 }
 
 startServer();

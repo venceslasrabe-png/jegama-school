@@ -4,6 +4,7 @@ import type {
   AttendanceLog,
   AuditLog,
   Bulletin,
+  CollectionReminder,
   CycleHourlyRate,
   DashboardSummary,
   EvaluationPeriod,
@@ -39,6 +40,7 @@ export interface AppState {
   teacherPayslips: TeacherPayslip[];
   paymentNotifications: PaymentNotification[];
   payments: Payment[];
+  collectionReminders: CollectionReminder[];
   attendanceLogs: AttendanceLog[];
   grades: Grade[];
   bulletins: Bulletin[];

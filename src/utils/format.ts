@@ -80,6 +80,7 @@ export function exportToCsv(filename: string, headers: string[], rows: (string |
 }
 
 export const ROLE_LABELS: Record<UserRole, string> = {
+  enseignant: 'Enseignant',
   scolarite: 'Scolarité',
   caisse: 'Caisse (Scolarité)',
   secretariat: 'Secrétariat académique',

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   Archive,
   Award,
+  BellRing,
   BookOpen,
   Briefcase,
   CheckSquare,
@@ -35,6 +36,7 @@ type MenuKey =
   | 'dashboard'
   | 'eleves'
   | 'caisse'
+  | 'recouvrement'
   | 'classes'
   | 'notes'
   | 'bulletins'
@@ -54,7 +56,7 @@ const ROLE_MISSIONS: Record<UserRole, { mission: string; readOnly: boolean }> = 
     readOnly: false,
   },
   scolarite: {
-    mission: 'Inscriptions, réinscriptions, cartes scolaires et suivi des dossiers élèves.',
+    mission: 'Inscriptions, réinscriptions, cartes scolaires, dossiers élèves et validation des notes.',
     readOnly: false,
   },
   caisse: {
@@ -63,6 +65,10 @@ const ROLE_MISSIONS: Record<UserRole, { mission: string; readOnly: boolean }> = 
   },
   secretariat: {
     mission: 'Constitution des classes, saisie des notes, moyennes et livraison des bulletins.',
+    readOnly: false,
+  },
+  enseignant: {
+    mission: 'Enregistrement des notes (/20) et appréciations ; soumission à la Scolarité pour validation.',
     readOnly: false,
   },
   surveillant: {
@@ -155,9 +161,11 @@ export default function App() {
     if (r === 'direction' || r === 'admin') return true;
     if (r === 'parent') return key === 'parent';
     if (key === 'dashboard') return true;
+    if (r === 'enseignant') return key === 'notes';
     if (key === 'eleves') return r === 'scolarite' || r === 'caisse' || r === 'secretariat';
-    if (key === 'caisse') return r === 'scolarite' || r === 'caisse';
-    if (key === 'classes' || key === 'notes' || key === 'bulletins') return r === 'secretariat';
+    if (key === 'caisse' || key === 'recouvrement') return r === 'scolarite' || r === 'caisse';
+    if (key === 'classes' || key === 'bulletins') return r === 'secretariat';
+    if (key === 'notes') return r === 'secretariat' || r === 'scolarite';
     if (key === 'enseignants') return r === 'secretariat' || r === 'caisse';
     if (key === 'surveillance') return r === 'surveillant' || r === 'secretariat';
     if (key === 'archives') return r === 'scolarite' || r === 'caisse' || r === 'secretariat';
@@ -200,10 +208,21 @@ export default function App() {
     },
     {
       id: 'notes',
-      label: 'Notes & Moyennes',
+      label:
+        session.role === 'scolarite'
+          ? 'Validation des notes'
+          : session.role === 'enseignant'
+            ? 'Saisie des notes'
+            : 'Notes & Moyennes',
       icon: (active) => (
         <FileText className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
       ),
+      badge:
+        (session.role === 'scolarite' || session.role === 'admin' || session.role === 'direction') &&
+        appState
+          ? appState.summary.pendingGradesCount ??
+            appState.grades.filter((g) => g.validationStatus === 'en_attente').length
+          : undefined,
     },
     {
       id: 'bulletins',
@@ -214,7 +233,7 @@ export default function App() {
     },
     {
       id: 'caisse',
-      label: 'Caisse & Recouvrement',
+      label: 'Caisse & Reçus',
       icon: (active) => (
         <CreditCard className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
       ),
@@ -222,6 +241,21 @@ export default function App() {
         (session.role === 'caisse' || session.role === 'direction' || session.role === 'admin') &&
         appState
           ? appState.summary.pendingNotificationsCount
+          : undefined,
+    },
+    {
+      id: 'recouvrement',
+      label: 'Recouvrement',
+      icon: (active) => (
+        <BellRing className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
+      ),
+      badge:
+        (session.role === 'caisse' ||
+          session.role === 'scolarite' ||
+          session.role === 'direction' ||
+          session.role === 'admin') &&
+        appState
+          ? appState.summary.overdueStudentsCount
           : undefined,
     },
     {
@@ -259,7 +293,9 @@ export default function App() {
 
   const handleDashboardNavigate = (sec: NavSection) => {
     if (sec === 'scolarite') setActiveMenu(session.role === 'caisse' ? 'caisse' : 'eleves');
-    else if (sec === 'secretariat') setActiveMenu('notes');
+    else if (sec === 'recouvrement') setActiveMenu('recouvrement');
+    else if (sec === 'notes') setActiveMenu('notes');
+    else if (sec === 'secretariat') setActiveMenu('bulletins');
     else if (sec === 'enseignants') setActiveMenu('enseignants');
     else if (sec === 'surveillance') setActiveMenu('surveillance');
     else if (sec === 'archives') setActiveMenu('archives');
@@ -542,11 +578,18 @@ export default function App() {
                   onNavigate={handleDashboardNavigate}
                 />
               )}
-              {(activeMenu === 'eleves' || activeMenu === 'caisse') && (
+              {(activeMenu === 'eleves' || activeMenu === 'caisse' || activeMenu === 'recouvrement') && (
                 <ScolariteView
                   state={appState}
                   session={session}
-                  initialTab={activeMenu === 'caisse' ? 'caisse' : 'dossiers'}
+                  initialTab={
+                    activeMenu === 'recouvrement'
+                      ? 'recouvrement'
+                      : activeMenu === 'caisse'
+                        ? 'caisse'
+                        : 'dossiers'
+                  }
+                  onOpenNotesValidation={() => setActiveMenu('notes')}
                   onRefresh={() => fetchState(session)}
                 />
               )}

@@ -545,6 +545,7 @@ export const AdminView: React.FC<{
                 onChange={(e) => setNewUser({ ...newUser, role: e.target.value as UserRole })}
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
               >
+                <option value="enseignant">Enseignant</option>
                 <option value="scolarite">Scolarité</option>
                 <option value="caisse">Caisse</option>
                 <option value="secretariat">Secrétariat académique</option>

@@ -1,14 +1,23 @@
 import React, { useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   Bell,
+  CalendarClock,
   Camera,
+  CheckCircle2,
   CreditCard,
   Download,
   Edit3,
+  ExternalLink,
   FileText,
+  Mail,
+  MessageSquare,
+  PhoneCall,
   Plus,
   RefreshCw,
   Search,
+  Send,
+  Settings2,
   ShieldOff,
   Trash2,
   Upload,
@@ -16,7 +25,26 @@ import {
   Users,
 } from 'lucide-react';
 import { apiRequest, type AppState, type SessionUser } from '../api';
-import type { FeeGridItem, Payment, SchoolCycle, SchoolProgram, Student } from '../types';
+import {
+  buildReminderMessageText,
+  computeStudentRecoveryProfile,
+  evaluateStudentAutoFollowUp,
+  getDefaultCollectionAutomation,
+} from '../shared/schoolEngine';
+import type {
+  CollectionAutomationSettings,
+  CollectionReminder,
+  FeeGridItem,
+  ParentTutor,
+  Payment,
+  ReminderChannel,
+  ReminderStatus,
+  SchoolCycle,
+  SchoolProgram,
+  Student,
+  StudentFollowUpPlan,
+  StudentRecoveryProfile,
+} from '../types';
 import {
   CYCLES,
   exportToCsv,
@@ -26,16 +54,43 @@ import {
   processProfilePhotoFile,
   PROGRAMS,
 } from '../utils/format';
-import { ReceiptModal, StudentAvatar, StudentCardModal } from './PrintableDocs';
+import {
+  ReceiptModal,
+  ReminderNoticeModal,
+  StudentAvatar,
+  StudentCardModal,
+} from './PrintableDocs';
 
-type ScolariteTab = 'dossiers' | 'caisse' | 'parents' | 'tarifs';
+type ScolariteTab = 'dossiers' | 'caisse' | 'recouvrement' | 'parents' | 'tarifs';
+
+const REMINDER_STATUS_LABELS: Record<ReminderStatus, string> = {
+  relance_1: '1ère relance',
+  relance_2: '2ème relance',
+  mise_en_demeure: 'Mise en demeure',
+  moratoire: 'Moratoire accordé',
+  resolu: 'Régularisé',
+};
+
+const REMINDER_CHANNELS: ReminderChannel[] = [
+  'Appel téléphonique',
+  'SMS / WhatsApp',
+  'Courrier / Convocation',
+  'Email',
+];
+
+const AUTO_CHANNEL_LABELS: Record<CollectionAutomationSettings['primaryChannel'], string> = {
+  whatsapp_et_email: 'WhatsApp + E-mail',
+  whatsapp: 'WhatsApp uniquement',
+  email: 'E-mail uniquement',
+};
 
 export const ScolariteView: React.FC<{
   state: AppState;
   session: SessionUser;
   initialTab?: ScolariteTab;
+  onOpenNotesValidation?: () => void;
   onRefresh: () => Promise<void>;
-}> = ({ state, session, initialTab, onRefresh }) => {
+}> = ({ state, session, initialTab, onOpenNotesValidation, onRefresh }) => {
   const isCaisse = session.role === 'caisse';
   const canModifyScolarite = session.role === 'scolarite' || session.role === 'admin';
   const canCollectCaisse = session.role === 'caisse' || session.role === 'scolarite' || session.role === 'admin';
@@ -69,7 +124,71 @@ export const ScolariteView: React.FC<{
     null
   );
   const [showParentModal, setShowParentModal] = useState(false);
+  const [editingParent, setEditingParent] = useState<ParentTutor | null>(null);
   const [editingFee, setEditingFee] = useState<FeeGridItem | null>(null);
+
+  // Recouvrement filters & modals
+  const [recoveryFilter, setRecoveryFilter] = useState<
+    'unpaid' | 'overdue' | 'moratoire' | 'solde' | 'all'
+  >('unpaid');
+  const [reminderTarget, setReminderTarget] = useState<{
+    student: Student;
+    profile: StudentRecoveryProfile;
+  } | null>(null);
+  const [reminderForm, setReminderForm] = useState<{
+    channel: ReminderChannel;
+    status: ReminderStatus;
+    promisedDate: string;
+    notes: string;
+  }>({
+    channel: 'Appel téléphonique',
+    status: 'relance_1',
+    promisedDate: '',
+    notes: '',
+  });
+  const [noticeModal, setNoticeModal] = useState<{
+    student: Student;
+    profile: StudentRecoveryProfile;
+    latestReminder?: CollectionReminder;
+  } | null>(null);
+
+  // WhatsApp / Email automation & quick-send state
+  const currentAutoSettings = useMemo(
+    () => state.settings.collectionAutomation || getDefaultCollectionAutomation(),
+    [state.settings.collectionAutomation]
+  );
+  const [autoConfigOpen, setAutoConfigOpen] = useState(false);
+  const [autoForm, setAutoForm] = useState<CollectionAutomationSettings>(currentAutoSettings);
+  React.useEffect(() => {
+    setAutoForm(currentAutoSettings);
+  }, [currentAutoSettings]);
+
+  const [lastDispatchResult, setLastDispatchResult] = useState<{
+    title: string;
+    dispatchedCount: number;
+    whatsappLinks: Array<{ studentId: string; studentName: string; phone: string; url: string }>;
+    emailLinks: Array<{ studentId: string; studentName: string; email: string; url: string }>;
+  } | null>(null);
+
+  const [messageTarget, setMessageTarget] = useState<{
+    student: Student;
+    parent?: ParentTutor;
+    profile: StudentRecoveryProfile;
+    plan: StudentFollowUpPlan;
+  } | null>(null);
+  const [messageForm, setMessageForm] = useState<{
+    channel: 'whatsapp_et_email' | 'whatsapp' | 'email';
+    customMessage: string;
+    status: ReminderStatus;
+    sentWhatsappUrl: string | null;
+    sentMailtoUrl: string | null;
+  }>({
+    channel: 'whatsapp_et_email',
+    customMessage: '',
+    status: 'relance_1',
+    sentWhatsappUrl: null,
+    sentMailtoUrl: null,
+  });
 
   // Enroll form state
   const [enrollForm, setEnrollForm] = useState({
@@ -86,6 +205,7 @@ export const ScolariteView: React.FC<{
     parentId: state.parents[0]?.id || '',
     newParentName: '',
     newParentPhone: '',
+    newParentEmail: '',
     newParentAddress: '',
     newParentCode: '',
   });
@@ -103,6 +223,7 @@ export const ScolariteView: React.FC<{
   const [parentForm, setParentForm] = useState({
     fullName: '',
     phone: '+242 06 ',
+    email: '',
     address: 'Pointe-Noire',
     accessCode: '',
   });
@@ -141,9 +262,144 @@ export const ScolariteView: React.FC<{
       .filter((item) => item.balance.remaining > 0);
   }, [state.students, state.payments, state.feeGrid]);
 
+  const latestReminderByStudent = useMemo(() => {
+    const map = new Map<string, CollectionReminder>();
+    for (const r of state.collectionReminders || []) {
+      const prev = map.get(r.studentId);
+      if (!prev || new Date(r.sentAt).getTime() >= new Date(prev.sentAt).getTime()) {
+        map.set(r.studentId, r);
+      }
+    }
+    return map;
+  }, [state.collectionReminders]);
+
+  const recoveryRows = useMemo(() => {
+    const active = state.students.filter((s) => s.status !== 'archive');
+    return active
+      .map((student) => {
+        const profile = computeStudentRecoveryProfile(
+          { feeGrid: state.feeGrid, payments: state.payments },
+          student
+        );
+        const followUpPlan = evaluateStudentAutoFollowUp(
+          {
+            feeGrid: state.feeGrid,
+            payments: state.payments,
+            collectionReminders: state.collectionReminders,
+            settings: state.settings,
+          },
+          student
+        );
+        const parent = state.parents.find((p) => p.id === student.parentId);
+        const schoolClass = state.classes.find((c) => c.id === student.classId);
+        const latestReminder = latestReminderByStudent.get(student.id);
+        return { student, profile, followUpPlan, parent, schoolClass, latestReminder };
+      })
+      .sort((a, b) => {
+        if (b.profile.overdueFcfa !== a.profile.overdueFcfa) {
+          return b.profile.overdueFcfa - a.profile.overdueFcfa;
+        }
+        return b.profile.remaining - a.profile.remaining;
+      });
+  }, [
+    state.students,
+    state.feeGrid,
+    state.payments,
+    state.collectionReminders,
+    state.settings,
+    state.parents,
+    state.classes,
+    latestReminderByStudent,
+  ]);
+
+  const recoveryStats = useMemo(() => {
+    let totalExpected = 0;
+    let totalCollected = 0;
+    let totalRemaining = 0;
+    let totalOverdue = 0;
+    let overdueCount = 0;
+    let activeMoratoiresCount = 0;
+    let initialAlertDueCount = 0;
+    let j3FollowUpDueCount = 0;
+
+    for (const row of recoveryRows) {
+      totalExpected += row.profile.expected;
+      totalCollected += row.profile.paid;
+      totalRemaining += row.profile.remaining;
+      if (row.profile.overdueFcfa > 0) {
+        totalOverdue += row.profile.overdueFcfa;
+        overdueCount += 1;
+      }
+      if (row.profile.remaining > 0 && row.latestReminder?.status === 'moratoire') {
+        activeMoratoiresCount += 1;
+      }
+      if (row.followUpPlan.actionNeeded === 'initial_alert') {
+        initialAlertDueCount += 1;
+      } else if (row.followUpPlan.actionNeeded === 'followup_j3') {
+        j3FollowUpDueCount += 1;
+      }
+    }
+
+    const collectionRate =
+      totalExpected > 0 ? Math.round((totalCollected / totalExpected) * 100) : 0;
+
+    return {
+      totalExpected,
+      totalCollected,
+      totalRemaining,
+      totalOverdue,
+      overdueCount,
+      activeMoratoiresCount,
+      initialAlertDueCount,
+      j3FollowUpDueCount,
+      pendingAutoTotal: initialAlertDueCount + j3FollowUpDueCount,
+      collectionRate,
+      totalReminders: (state.collectionReminders || []).length,
+    };
+  }, [recoveryRows, state.collectionReminders]);
+
+  const filteredRecoveryRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return recoveryRows.filter(({ student, profile, parent, latestReminder }) => {
+      if (cycleFilter !== 'all' && student.cycle !== cycleFilter) return false;
+      if (recoveryFilter === 'unpaid' && profile.remaining <= 0) return false;
+      if (recoveryFilter === 'overdue' && profile.overdueFcfa <= 0) return false;
+      if (
+        recoveryFilter === 'moratoire' &&
+        !(profile.remaining > 0 && latestReminder?.status === 'moratoire')
+      ) {
+        return false;
+      }
+      if (recoveryFilter === 'solde' && profile.remaining > 0) return false;
+
+      if (!q) return true;
+      return (
+        student.firstName.toLowerCase().includes(q) ||
+        student.lastName.toLowerCase().includes(q) ||
+        student.cardId.toLowerCase().includes(q) ||
+        (parent?.fullName || '').toLowerCase().includes(q)
+      );
+    });
+  }, [recoveryRows, search, cycleFilter, recoveryFilter]);
+
+  const cycleRecoveryBreakdown = useMemo(() => {
+    return CYCLES.map((cycle) => {
+      const items = recoveryRows.filter((r) => r.student.cycle === cycle);
+      const expected = items.reduce((s, r) => s + r.profile.expected, 0);
+      const paid = items.reduce((s, r) => s + r.profile.paid, 0);
+      const remaining = items.reduce((s, r) => s + r.profile.remaining, 0);
+      const overdue = items.reduce((s, r) => s + r.profile.overdueFcfa, 0);
+      const rate = expected > 0 ? Math.round((paid / expected) * 100) : 0;
+      return { cycle, count: items.length, expected, paid, remaining, overdue, rate };
+    }).filter((item) => item.count > 0);
+  }, [recoveryRows]);
+
   const pendingNotifications = state.paymentNotifications.filter(
     (n) => n.status === 'en_attente'
   );
+  const pendingGradesCount =
+    state.summary.pendingGradesCount ??
+    state.grades.filter((g) => g.validationStatus === 'en_attente').length;
 
   const handleEnrollPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -203,6 +459,7 @@ export const ScolariteView: React.FC<{
               newParent: {
                 fullName: enrollForm.newParentName,
                 phone: enrollForm.newParentPhone,
+                email: enrollForm.newParentEmail,
                 address: enrollForm.newParentAddress,
                 accessCode: enrollForm.newParentCode,
               },
@@ -223,6 +480,7 @@ export const ScolariteView: React.FC<{
         photoUrl: '',
         newParentName: '',
         newParentPhone: '',
+        newParentEmail: '',
         newParentAddress: '',
         newParentCode: '',
       });
@@ -366,12 +624,42 @@ export const ScolariteView: React.FC<{
       );
       await onRefresh();
       setShowParentModal(false);
-      setParentForm({ fullName: '', phone: '+242 06 ', address: 'Pointe-Noire', accessCode: '' });
+      setParentForm({
+        fullName: '',
+        phone: '+242 06 ',
+        email: '',
+        address: 'Pointe-Noire',
+        accessCode: '',
+      });
       setFeedback({ type: 'ok', text: 'Parent / tuteur enregistré.' });
     } catch (err) {
       setFeedback({
         type: 'err',
         text: err instanceof Error ? err.message : 'Erreur d’enregistrement.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleUpdateParent = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingParent) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      await apiRequest(
+        `/api/parents/${editingParent.id}`,
+        { method: 'PUT', body: JSON.stringify(editingParent) },
+        session
+      );
+      await onRefresh();
+      setEditingParent(null);
+      setFeedback({ type: 'ok', text: 'Coordonnées parent mises à jour.' });
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Erreur de mise à jour.',
       });
     } finally {
       setBusy(false);
@@ -420,16 +708,285 @@ export const ScolariteView: React.FC<{
     exportToCsv(`impayes-jegama-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
   };
 
+  const handleExportRecoveryCsv = () => {
+    const headers = [
+      'Carte',
+      'Élève',
+      'Cycle',
+      'Classe',
+      'Parent',
+      'Téléphone',
+      'Attendu (FCFA)',
+      'Payé (FCFA)',
+      'Échu en retard (FCFA)',
+      'Jours retard',
+      'Reste à payer (FCFA)',
+      'Prochaine échéance',
+      'Dernière relance',
+      'Date moratoire',
+    ];
+    const rows = filteredRecoveryRows.map(({ student, profile, parent, schoolClass, latestReminder }) => [
+      student.cardId,
+      `${student.lastName} ${student.firstName}`,
+      student.cycle,
+      schoolClass?.name || '—',
+      parent?.fullName || '—',
+      parent?.phone || '—',
+      profile.expected,
+      profile.paid,
+      profile.overdueFcfa,
+      profile.daysOverdue,
+      profile.remaining,
+      profile.nextDueDate || 'Soldé',
+      latestReminder ? REMINDER_STATUS_LABELS[latestReminder.status] : 'Aucune',
+      latestReminder?.promisedDate || '—',
+    ]);
+    exportToCsv(`recouvrement-jegama-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
+  };
+
+  const openReminderModal = (student: Student, profile: StudentRecoveryProfile) => {
+    const latest = latestReminderByStudent.get(student.id);
+    const nextStatus: ReminderStatus =
+      latest?.status === 'relance_1'
+        ? 'relance_2'
+        : latest?.status === 'relance_2'
+          ? 'mise_en_demeure'
+          : 'relance_1';
+    const defaultPromise = new Date(Date.now() + 7 * 86400000).toISOString().slice(0, 10);
+    setReminderForm({
+      channel: 'Appel téléphonique',
+      status: nextStatus,
+      promisedDate: defaultPromise,
+      notes:
+        profile.overdueFcfa > 0
+          ? `Relance pour solde échu de ${formatFcfa(profile.overdueFcfa)} (${profile.nextDueLabel || 'tranche échue'}).`
+          : `Rappel d’échéance à venir (${profile.nextDueLabel || 'scolarité'}).`,
+    });
+    setReminderTarget({ student, profile });
+  };
+
+  const handleCreateReminder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reminderTarget) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      await apiRequest<{ reminder: CollectionReminder }>(
+        '/api/recouvrement/reminders',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            studentId: reminderTarget.student.id,
+            channel: reminderForm.channel,
+            status: reminderForm.status,
+            promisedDate: reminderForm.status === 'moratoire' ? reminderForm.promisedDate : null,
+            notes: reminderForm.notes,
+          }),
+        },
+        session
+      );
+      await onRefresh();
+      const targetName = `${reminderTarget.student.firstName} ${reminderTarget.student.lastName}`;
+      const statusLabel = REMINDER_STATUS_LABELS[reminderForm.status];
+      setReminderTarget(null);
+      setFeedback({
+        type: 'ok',
+        text: `${statusLabel} enregistrée pour ${targetName}.`,
+      });
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Erreur lors de l’enregistrement de la relance.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openMessageModal = (
+    student: Student,
+    profile: StudentRecoveryProfile,
+    parent: ParentTutor | undefined,
+    plan: StudentFollowUpPlan
+  ) => {
+    const delayDays = Math.max(1, Number(currentAutoSettings.followUpDelayDays) || 3);
+    const step = plan.nextStep > 0 ? plan.nextStep : 1;
+    const defaultStatus: ReminderStatus =
+      plan.nextStatus === 'resolu' ? 'relance_1' : plan.nextStatus;
+    const defaultMsg = buildReminderMessageText({
+      student,
+      parent,
+      profile,
+      schoolName: state.settings.schoolName,
+      step,
+      delayDays,
+    });
+    const hasEmail = Boolean((parent?.email || '').trim());
+    const hasPhone = Boolean((parent?.whatsappPhone || parent?.phone || '').trim());
+    const initialChannel: 'whatsapp_et_email' | 'whatsapp' | 'email' =
+      hasPhone && hasEmail
+        ? currentAutoSettings.primaryChannel
+        : hasEmail
+          ? 'email'
+          : 'whatsapp';
+
+    setMessageForm({
+      channel: initialChannel,
+      customMessage: defaultMsg,
+      status: defaultStatus,
+      sentWhatsappUrl: null,
+      sentMailtoUrl: null,
+    });
+    setMessageTarget({ student, parent, profile, plan });
+  };
+
+  const handleSendMessageSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!messageTarget) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await apiRequest<{
+        reminders: CollectionReminder[];
+        whatsappUrl: string | null;
+        mailtoUrl: string | null;
+      }>(
+        '/api/recouvrement/send-message',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            studentId: messageTarget.student.id,
+            channel: messageForm.channel,
+            customMessage: messageForm.customMessage,
+            status: messageForm.status,
+          }),
+        },
+        session
+      );
+      await onRefresh();
+      setMessageForm((prev) => ({
+        ...prev,
+        sentWhatsappUrl: res.whatsappUrl,
+        sentMailtoUrl: res.mailtoUrl,
+      }));
+      const targetName = `${messageTarget.student.firstName} ${messageTarget.student.lastName}`;
+      setLastDispatchResult({
+        title: `Envoi enregistré pour ${targetName}`,
+        dispatchedCount: res.reminders.length,
+        whatsappLinks: res.whatsappUrl
+          ? [
+              {
+                studentId: messageTarget.student.id,
+                studentName: targetName,
+                phone: messageTarget.parent?.whatsappPhone || messageTarget.parent?.phone || '',
+                url: res.whatsappUrl,
+              },
+            ]
+          : [],
+        emailLinks: res.mailtoUrl
+          ? [
+              {
+                studentId: messageTarget.student.id,
+                studentName: targetName,
+                email: messageTarget.parent?.email || '',
+                url: res.mailtoUrl,
+              },
+            ]
+          : [],
+      });
+      setFeedback({
+        type: 'ok',
+        text: `${res.reminders.length} notification(s) enregistrée(s) pour ${targetName}. Utilisez les liens directs ci-dessous pour ouvrir WhatsApp / E-mail.`,
+      });
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Erreur lors de l’envoi du message.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRunAutoFollowUp = async () => {
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await apiRequest<{
+        dispatchedCount: number;
+        reminders: CollectionReminder[];
+        whatsappLinks: Array<{ studentId: string; studentName: string; phone: string; url: string }>;
+        emailLinks: Array<{ studentId: string; studentName: string; email: string; url: string }>;
+      }>(
+        '/api/recouvrement/run-auto',
+        { method: 'POST', body: JSON.stringify({}) },
+        session
+      );
+      await onRefresh();
+      if (res.dispatchedCount === 0) {
+        setLastDispatchResult(null);
+        setFeedback({
+          type: 'ok',
+          text: `Aucun nouvel avis ou relance J+${currentAutoSettings.followUpDelayDays} à expédier pour le moment.`,
+        });
+      } else {
+        setLastDispatchResult({
+          title: `Traitement automatique J+0 / J+${currentAutoSettings.followUpDelayDays}`,
+          dispatchedCount: res.dispatchedCount,
+          whatsappLinks: res.whatsappLinks,
+          emailLinks: res.emailLinks,
+        });
+        setFeedback({
+          type: 'ok',
+          text: `${res.dispatchedCount} notification(s) WhatsApp / E-mail enregistrée(s) et programmée(s).`,
+        });
+      }
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Erreur lors de l’exécution automatique.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSaveAutomationSettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setFeedback(null);
+    try {
+      await apiRequest(
+        '/api/recouvrement/automation-settings',
+        { method: 'PUT', body: JSON.stringify(autoForm) },
+        session
+      );
+      await onRefresh();
+      setAutoConfigOpen(false);
+      setFeedback({
+        type: 'ok',
+        text: `Règle de relance mise à jour (relance automatique à J+${autoForm.followUpDelayDays}).`,
+      });
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Erreur de sauvegarde des paramètres.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header + Sub-tabs */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="min-w-0">
           <h1 className="font-display text-xl sm:text-2xl font-bold text-slate-900">
-            Scolarité & Caisse
+            Scolarité, Caisse & Recouvrement
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Inscriptions, cartes scolaires uniques, encaissements FCFA et relances d’impayés.
+            Inscriptions, encaissements FCFA, suivi des échéances et relances de recouvrement.
           </p>
         </div>
 
@@ -443,6 +1000,13 @@ export const ScolariteView: React.FC<{
                   pendingNotifications.length > 0
                     ? `Caisse (${pendingNotifications.length})`
                     : 'Caisse & Reçus',
+              },
+              {
+                id: 'recouvrement',
+                label:
+                  recoveryStats.overdueCount > 0
+                    ? `Recouvrement (${recoveryStats.overdueCount})`
+                    : 'Recouvrement',
               },
               { id: 'parents', label: 'Parents & Tuteurs' },
               { id: 'tarifs', label: 'Grille tarifaire' },
@@ -463,6 +1027,26 @@ export const ScolariteView: React.FC<{
           ))}
         </div>
       </div>
+
+      {canModifyScolarite && pendingGradesCount > 0 && onOpenNotesValidation && (
+        <div className="p-3.5 sm:p-4 rounded-xl border border-amber-300 bg-amber-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start sm:items-center gap-2.5 text-xs text-amber-950">
+            <FileText className="w-4 h-4 text-amber-700 shrink-0 mt-0.5 sm:mt-0" />
+            <span>
+              <strong className="font-mono tabular-nums">{pendingGradesCount}</strong> fiche(s) de
+              notes enregistrée(s) par les enseignants sont en attente de validation par la
+              Scolarité.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenNotesValidation}
+            className="px-3.5 py-2 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg whitespace-nowrap shrink-0 self-start sm:self-auto"
+          >
+            Ouvrir la file de validation
+          </button>
+        </div>
+      )}
 
       {feedback && (
         <div
@@ -993,14 +1577,23 @@ export const ScolariteView: React.FC<{
                 <h2 className="font-display text-base font-bold text-slate-900">
                   Dossiers avec solde dû ({unpaidStudents.length})
                 </h2>
-                <button
-                  type="button"
-                  onClick={handleExportUnpaidCsv}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 whitespace-nowrap"
-                >
-                  <Download className="w-3.5 h-3.5" />
-                  Exporter CSV
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('recouvrement')}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg whitespace-nowrap"
+                  >
+                    Suivi recouvrement
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleExportUnpaidCsv}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 whitespace-nowrap"
+                  >
+                    <Download className="w-3.5 h-3.5" />
+                    CSV
+                  </button>
+                </div>
               </div>
               <div className="divide-y divide-slate-100">
                 {unpaidStudents.map(({ student, balance }) => {
@@ -1050,6 +1643,849 @@ export const ScolariteView: React.FC<{
         </div>
       )}
 
+      {/* TAB: RECOUVREMENT & RELANCES */}
+      {activeTab === 'recouvrement' && (
+        <div className="space-y-6">
+          {/* KPI Strip */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
+            <div className="p-4 sm:p-5 bg-white">
+              <div className="text-xs font-medium text-slate-500">Total restant à recouvrer</div>
+              <div className="mt-1.5 text-xl sm:text-2xl font-mono font-bold text-slate-900 tabular-nums">
+                {formatFcfa(recoveryStats.totalRemaining)}
+              </div>
+              <div className="mt-1 text-xs font-mono text-slate-500 tabular-nums">
+                Sur {formatFcfa(recoveryStats.totalExpected)} attendus
+              </div>
+            </div>
+
+            <div className="p-4 sm:p-5 bg-white">
+              <div className="text-xs font-medium text-slate-500">Montant échu en retard</div>
+              <div className="mt-1.5 text-xl sm:text-2xl font-mono font-bold text-red-700 tabular-nums">
+                {formatFcfa(recoveryStats.totalOverdue)}
+              </div>
+              <div className="mt-1 text-xs text-slate-500 tabular-nums">
+                {recoveryStats.overdueCount} dossier(s) à échéance dépassée
+              </div>
+            </div>
+
+            <div className="p-4 sm:p-5 bg-white">
+              <div className="text-xs font-medium text-slate-500">Taux de recouvrement</div>
+              <div className="mt-1.5 text-xl sm:text-2xl font-mono font-bold text-emerald-700 tabular-nums">
+                {recoveryStats.collectionRate}%
+              </div>
+              <div className="mt-1 text-xs font-mono text-slate-500 tabular-nums">
+                {formatFcfa(recoveryStats.totalCollected)} encaissés
+              </div>
+            </div>
+
+            <div className="p-4 sm:p-5 bg-white">
+              <div className="text-xs font-medium text-slate-500">Relances & Moratoires</div>
+              <div className="mt-1.5 text-xl sm:text-2xl font-mono font-bold text-blue-900 tabular-nums">
+                {recoveryStats.totalReminders}
+              </div>
+              <div className="mt-1 text-xs text-slate-500 tabular-nums">
+                {recoveryStats.activeMoratoiresCount} moratoire(s) · {recoveryStats.pendingAutoTotal} à relancer
+              </div>
+            </div>
+          </div>
+
+          {/* WhatsApp / E-mail & Relance automatique J+3 */}
+          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5 space-y-4">
+            <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+              <div className="space-y-1 min-w-0">
+                <h2 className="font-display text-sm sm:text-base font-bold text-slate-900 flex items-center gap-2">
+                  <Send className="w-4 h-4 text-blue-900 shrink-0" />
+                  Notifications WhatsApp / E-mail & Relance automatique J+
+                  {currentAutoSettings.followUpDelayDays}
+                </h2>
+                <p className="text-xs text-slate-600">
+                  Envoi auto dès retard ({currentAutoSettings.autoNotifyOnOverdue ? 'Activé' : 'En pause'})
+                  {' · '}Canal : <span className="font-semibold text-slate-800">{AUTO_CHANNEL_LABELS[currentAutoSettings.primaryChannel]}</span>
+                  {' · '}Relance sans paiement à <span className="font-mono font-semibold text-slate-800">J+{currentAutoSettings.followUpDelayDays}</span>
+                  {' · '}Max <span className="font-mono">{currentAutoSettings.maxAutoReminders}</span> rappels
+                  {currentAutoSettings.lastAutoRunAt && (
+                    <span className="text-slate-400">
+                      {' · '}Dernier envoi : {formatDateTimeFr(currentAutoSettings.lastAutoRunAt)}
+                    </span>
+                  )}
+                </p>
+                <p className="text-xs font-medium">
+                  {recoveryStats.pendingAutoTotal > 0 ? (
+                    <span className="text-amber-800">
+                      <span className="font-mono font-bold tabular-nums">{recoveryStats.initialAlertDueCount}</span> 1er(s) avis
+                      {' + '}
+                      <span className="font-mono font-bold tabular-nums">{recoveryStats.j3FollowUpDueCount}</span> relance(s) J+
+                      {currentAutoSettings.followUpDelayDays} prêt(s) à expédier.
+                    </span>
+                  ) : (
+                    <span className="text-emerald-700">
+                      Tous les dossiers en retard ont déjà reçu leur avis ou sont sous moratoire actif.
+                    </span>
+                  )}
+                </p>
+              </div>
+
+              {canCollectCaisse && !isReadOnly && (
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={handleRunAutoFollowUp}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-[#0B1933] hover:bg-[#13294e] rounded-lg whitespace-nowrap"
+                  >
+                    <Send className="w-3.5 h-3.5 text-[#E5A923]" />
+                    Lancer les envois & relances (J+{currentAutoSettings.followUpDelayDays})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAutoConfigOpen((v) => !v)}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 whitespace-nowrap"
+                  >
+                    <Settings2 className="w-3.5 h-3.5" />
+                    Configurer J+{currentAutoSettings.followUpDelayDays}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {autoConfigOpen && canCollectCaisse && !isReadOnly && (
+              <form
+                onSubmit={handleSaveAutomationSettings}
+                className="pt-4 border-t border-slate-200 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end"
+              >
+                <label className="flex items-center gap-2 text-xs font-semibold text-slate-800 sm:col-span-2 lg:col-span-1 py-2">
+                  <input
+                    type="checkbox"
+                    checked={autoForm.autoNotifyOnOverdue}
+                    onChange={(e) =>
+                      setAutoForm({ ...autoForm, autoNotifyOnOverdue: e.target.checked })
+                    }
+                    className="rounded border-slate-300 text-blue-900"
+                  />
+                  Envoi automatique actif
+                </label>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Canal prioritaire
+                  </label>
+                  <select
+                    value={autoForm.primaryChannel}
+                    onChange={(e) =>
+                      setAutoForm({
+                        ...autoForm,
+                        primaryChannel: e.target.value as CollectionAutomationSettings['primaryChannel'],
+                      })
+                    }
+                    className="w-full px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
+                  >
+                    <option value="whatsapp_et_email">WhatsApp + E-mail</option>
+                    <option value="whatsapp">WhatsApp uniquement</option>
+                    <option value="email">E-mail uniquement</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Délai relance (jours)
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={30}
+                    value={autoForm.followUpDelayDays}
+                    onChange={(e) =>
+                      setAutoForm({
+                        ...autoForm,
+                        followUpDelayDays: Math.max(1, Number(e.target.value) || 3),
+                      })
+                    }
+                    className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded-lg"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Max relances auto
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10}
+                    value={autoForm.maxAutoReminders}
+                    onChange={(e) =>
+                      setAutoForm({
+                        ...autoForm,
+                        maxAutoReminders: Math.max(1, Number(e.target.value) || 3),
+                      })
+                    }
+                    className="w-full px-2.5 py-1.5 text-xs font-mono border border-slate-300 rounded-lg"
+                  />
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="submit"
+                    disabled={busy}
+                    className="px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg"
+                  >
+                    Enregistrer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAutoConfigOpen(false)}
+                    className="px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:text-slate-900"
+                  >
+                    Fermer
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {lastDispatchResult && (
+              <div className="pt-4 border-t border-slate-200 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="font-semibold text-slate-900">
+                    {lastDispatchResult.title} ·{' '}
+                    <span className="font-mono text-emerald-700">
+                      {lastDispatchResult.dispatchedCount} message(s) journalisé(s)
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setLastDispatchResult(null)}
+                    className="text-slate-500 hover:text-slate-800 underline"
+                  >
+                    Masquer les liens
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {lastDispatchResult.whatsappLinks.map((link, idx) => (
+                    <a
+                      key={`wa-${link.studentId}-${idx}`}
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-900 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-lg"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      Ouvrir WhatsApp · {link.studentName}
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  ))}
+                  {lastDispatchResult.emailLinks.map((link, idx) => (
+                    <a
+                      key={`ml-${link.studentId}-${idx}`}
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-900 bg-blue-50 border border-blue-200 hover:bg-blue-100 rounded-lg"
+                    >
+                      <Mail className="w-3.5 h-3.5" />
+                      Ouvrir E-mail · {link.studentName}
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Cycle Recovery Progress Overview */}
+          <div className="bg-white border border-slate-200 rounded-xl p-4 sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
+                Situation du recouvrement par cycle
+              </h2>
+              <span className="text-xs text-slate-500">
+                Calculé sur l’échéancier des tranches ({state.settings.currentAcademicYear})
+              </span>
+            </div>
+            <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+              <table className="w-full text-xs sm:text-sm min-w-[600px]">
+                <thead>
+                  <tr className="border-b border-slate-200 text-xs text-slate-500 text-left">
+                    <th className="py-2 pr-3 font-medium">Cycle</th>
+                    <th className="py-2 px-3 font-medium text-right">Élèves</th>
+                    <th className="py-2 px-3 font-medium text-right">Encaissé</th>
+                    <th className="py-2 px-3 font-medium text-right">Échu en retard</th>
+                    <th className="py-2 px-3 font-medium text-right">Reste à recouvrer</th>
+                    <th className="py-2 pl-3 font-medium text-right">Avancement</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {cycleRecoveryBreakdown.map((row) => (
+                    <tr key={row.cycle} className="hover:bg-slate-50">
+                      <td className="py-2.5 pr-3 font-semibold text-slate-900">{row.cycle}</td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-600">
+                        {row.count}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums text-emerald-700 font-medium">
+                        {formatFcfa(row.paid)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums font-semibold text-red-700">
+                        {formatFcfa(row.overdue)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums font-semibold text-slate-900">
+                        {formatFcfa(row.remaining)}
+                      </td>
+                      <td className="py-2.5 pl-3 text-right">
+                        <div className="inline-flex items-center justify-end gap-2">
+                          <div className="w-20 h-2 bg-slate-200 rounded overflow-hidden">
+                            <div
+                              className="h-full bg-[#0B1933]"
+                              style={{ width: `${row.rate}%` }}
+                            />
+                          </div>
+                          <span className="font-mono text-xs font-semibold text-slate-800 tabular-nums w-9 text-right">
+                            {row.rate}%
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Search & Filter Toolbar */}
+          <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2.5 sm:gap-3 flex-1 min-w-0">
+              <div className="relative w-full sm:flex-1 sm:min-w-[220px] sm:max-w-sm">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Rechercher élève, carte ou parent..."
+                  className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900"
+                />
+              </div>
+              <select
+                value={cycleFilter}
+                onChange={(e) => setCycleFilter(e.target.value)}
+                className="w-full sm:w-auto px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white"
+              >
+                <option value="all">Tous les cycles</option>
+                {CYCLES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={recoveryFilter}
+                onChange={(e) =>
+                  setRecoveryFilter(
+                    e.target.value as 'unpaid' | 'overdue' | 'moratoire' | 'solde' | 'all'
+                  )
+                }
+                className="w-full sm:w-auto px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white"
+              >
+                <option value="unpaid">Dossiers avec solde dû</option>
+                <option value="overdue">Échus en retard uniquement</option>
+                <option value="moratoire">Sous moratoire actif</option>
+                <option value="solde">Dossiers soldés</option>
+                <option value="all">Tous les dossiers</option>
+              </select>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleExportRecoveryCsv}
+              className="inline-flex items-center justify-center gap-2 px-3.5 py-2 text-xs font-semibold text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 whitespace-nowrap"
+            >
+              <Download className="w-4 h-4" />
+              Exporter recouvrement CSV
+            </button>
+          </div>
+
+          {/* Recovery Student Table / Mobile Cards */}
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            {/* Mobile Cards */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {filteredRecoveryRows.length === 0 ? (
+                <div className="p-6 text-center text-xs text-slate-500">
+                  Aucun dossier ne correspond à ces critères de recouvrement.
+                </div>
+              ) : (
+                filteredRecoveryRows.map(({ student, profile, followUpPlan, parent, schoolClass, latestReminder }) => (
+                  <div key={student.id} className="p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <StudentAvatar
+                          photoUrl={student.photoUrl}
+                          firstName={student.firstName}
+                          lastName={student.lastName}
+                          sizeClass="w-10 h-10"
+                        />
+                        <div className="min-w-0">
+                          <div className="font-semibold text-slate-900 text-sm truncate">
+                            {student.lastName} {student.firstName}
+                          </div>
+                          <div className="text-xs text-slate-500 font-mono truncate">
+                            {student.cardId} · {schoolClass?.name || student.cycle}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div
+                          className={`font-mono text-xs font-bold tabular-nums ${
+                            profile.overdueFcfa > 0
+                              ? 'text-red-700'
+                              : profile.remaining > 0
+                                ? 'text-slate-900'
+                                : 'text-emerald-700'
+                          }`}
+                        >
+                          {profile.remaining === 0 ? 'Soldé' : formatFcfa(profile.remaining)}
+                        </div>
+                        {profile.overdueFcfa > 0 && (
+                          <div className="text-[11px] font-semibold text-red-700 font-mono tabular-nums">
+                            Échu {formatFcfa(profile.overdueFcfa)} (+{profile.daysOverdue}j)
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="text-xs text-slate-600 space-y-0.5">
+                      <div>
+                        <span className="font-medium text-slate-800">{parent?.fullName || '—'}</span>
+                        {parent?.phone && <span className="font-mono"> · {parent.phone}</span>}
+                      </div>
+                      {parent?.email && (
+                        <div className="text-[11px] text-slate-500 font-mono">{parent.email}</div>
+                      )}
+                    </div>
+
+                    <div className="text-xs space-y-1 bg-slate-50 rounded-lg p-2.5">
+                      {profile.installmentBreakdown.map((inst) => (
+                        <div key={inst.label} className="flex items-center justify-between gap-2">
+                          <span className="text-slate-600 truncate">{inst.label}</span>
+                          <span
+                            className={`font-mono tabular-nums font-medium shrink-0 ${
+                              inst.settled
+                                ? 'text-emerald-700'
+                                : inst.isOverdue
+                                  ? 'text-red-700'
+                                  : 'text-slate-700'
+                            }`}
+                          >
+                            {inst.settled
+                              ? 'Soldée'
+                              : `${formatFcfa(inst.remainingForInstallment)}${inst.isOverdue ? ' (échue)' : ''}`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="text-xs space-y-0.5">
+                      {latestReminder && (
+                        <div className="text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          <span className="font-semibold text-blue-900">
+                            {REMINDER_STATUS_LABELS[latestReminder.status]}
+                          </span>
+                          <span>· {latestReminder.channel}</span>
+                          <span>· {formatDateFr(latestReminder.sentAt)}</span>
+                          {latestReminder.promisedDate && (
+                            <span className="font-mono text-amber-800 font-semibold">
+                              · Échéance {formatDateFr(latestReminder.promisedDate)}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {profile.overdueFcfa > 0 && (
+                        <div
+                          className={`text-[11px] font-medium ${
+                            followUpPlan.actionNeeded === 'followup_j3' ||
+                            followUpPlan.actionNeeded === 'initial_alert'
+                              ? 'text-amber-800'
+                              : 'text-slate-500'
+                          }`}
+                        >
+                          {followUpPlan.reasonLabel}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {canCollectCaisse && !isReadOnly && profile.remaining > 0 && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const suggested =
+                                profile.overdueFcfa > 0
+                                  ? profile.overdueFcfa
+                                  : profile.nextDueAmount || profile.remaining;
+                              const label = profile.nextDueLabel || 'Régularisation scolarité';
+                              setPayForm({
+                                amountPaid: suggested,
+                                method: 'Espèces',
+                                trancheLabel: label,
+                                notes: '',
+                              });
+                              setCollectTarget({
+                                student,
+                                suggestedAmount: suggested,
+                                trancheLabel: label,
+                              });
+                            }}
+                            className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg"
+                          >
+                            Encaisser
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openMessageModal(student, profile, parent, followUpPlan)}
+                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-emerald-900 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-lg"
+                          >
+                            <Send className="w-3 h-3" />
+                            WhatsApp / Mail
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openReminderModal(student, profile)}
+                            className="px-3 py-1.5 text-xs font-semibold text-[#0B1933] bg-[#E5A923] hover:bg-[#d89b18] rounded-lg"
+                          >
+                            Relancer / Moratoire
+                          </button>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setNoticeModal({ student, profile, latestReminder })
+                        }
+                        className="px-3 py-1.5 text-xs font-semibold text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50"
+                      >
+                        Avis PDF
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            {/* Desktop Table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
+                    <th className="py-3 px-4 font-semibold">Élève & Classe</th>
+                    <th className="py-3 px-4 font-semibold">Parent / Tuteur</th>
+                    <th className="py-3 px-4 font-semibold">Échéancier des tranches</th>
+                    <th className="py-3 px-4 font-semibold text-right">Échu / Reste dû</th>
+                    <th className="py-3 px-4 font-semibold">Suivi relance</th>
+                    <th className="py-3 px-4 font-semibold text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredRecoveryRows.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 px-4 text-center text-xs text-slate-500">
+                        Aucun dossier ne correspond à ces critères de recouvrement.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredRecoveryRows.map(
+                      ({ student, profile, followUpPlan, parent, schoolClass, latestReminder }) => (
+                        <tr key={student.id} className="hover:bg-slate-50 align-top">
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-3">
+                              <StudentAvatar
+                                photoUrl={student.photoUrl}
+                                firstName={student.firstName}
+                                lastName={student.lastName}
+                                sizeClass="w-9 h-9"
+                              />
+                              <div>
+                                <div className="font-semibold text-slate-900">
+                                  {student.lastName} {student.firstName}
+                                </div>
+                                <div className="text-xs text-slate-500 font-mono">
+                                  {student.cardId} · {schoolClass?.name || student.cycle}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="font-medium text-slate-900 text-xs">
+                              {parent?.fullName || '—'}
+                            </div>
+                            <div className="font-mono text-xs text-slate-500 mt-0.5">
+                              {parent?.phone || '—'}
+                            </div>
+                            {parent?.email && (
+                              <div className="font-mono text-[11px] text-slate-400 mt-0.5">
+                                {parent.email}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="space-y-1 text-xs">
+                              {profile.installmentBreakdown.map((inst, idx) => (
+                                <div key={inst.label} className="flex items-center gap-2">
+                                  {inst.settled ? (
+                                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
+                                  ) : inst.isOverdue ? (
+                                    <AlertTriangle className="w-3.5 h-3.5 text-red-700 shrink-0" />
+                                  ) : (
+                                    <CalendarClock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                  )}
+                                  <span className="text-slate-700">
+                                    T{idx + 1} ({formatDateFr(inst.dueDate)}) :
+                                  </span>
+                                  <span
+                                    className={`font-mono tabular-nums font-semibold ${
+                                      inst.settled
+                                        ? 'text-emerald-700'
+                                        : inst.isOverdue
+                                          ? 'text-red-700'
+                                          : 'text-slate-800'
+                                    }`}
+                                  >
+                                    {inst.settled
+                                      ? 'Soldée'
+                                      : `${formatFcfa(inst.remainingForInstallment)}${
+                                          inst.isOverdue ? ` (+${inst.daysOverdue}j)` : ''
+                                        }`}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {profile.overdueFcfa > 0 ? (
+                              <div className="font-mono text-xs font-bold text-red-700 tabular-nums">
+                                Échu : {formatFcfa(profile.overdueFcfa)}
+                              </div>
+                            ) : (
+                              <div className="font-mono text-xs font-medium text-emerald-700">
+                                Aucun retard
+                              </div>
+                            )}
+                            <div className="font-mono text-xs font-semibold text-slate-900 tabular-nums mt-0.5">
+                              Reste : {formatFcfa(profile.remaining)}
+                            </div>
+                            <div className="text-[11px] font-mono text-slate-500 tabular-nums mt-0.5">
+                              {profile.recoveryRatePercent}% réglé
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-xs">
+                            <div className="space-y-0.5">
+                              {latestReminder ? (
+                                <>
+                                  <div
+                                    className={`font-semibold ${
+                                      latestReminder.status === 'moratoire'
+                                        ? 'text-amber-800'
+                                        : latestReminder.status === 'mise_en_demeure'
+                                          ? 'text-red-700'
+                                          : 'text-blue-900'
+                                    }`}
+                                  >
+                                    {REMINDER_STATUS_LABELS[latestReminder.status]}
+                                    {latestReminder.isAutomatic && (
+                                      <span className="ml-1.5 text-[10px] font-mono text-slate-500">
+                                        (Auto)
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="text-slate-600">
+                                    {latestReminder.channel} · {formatDateFr(latestReminder.sentAt)}
+                                  </div>
+                                  {latestReminder.promisedDate && (
+                                    <div className="font-mono text-[11px] font-semibold text-amber-800 tabular-nums">
+                                      Promis le {formatDateFr(latestReminder.promisedDate)}
+                                    </div>
+                                  )}
+                                </>
+                              ) : (
+                                <span className="text-slate-400">Aucune relance</span>
+                              )}
+                              {profile.overdueFcfa > 0 && (
+                                <div
+                                  className={`text-[11px] font-medium pt-0.5 ${
+                                    followUpPlan.actionNeeded === 'followup_j3' ||
+                                    followUpPlan.actionNeeded === 'initial_alert'
+                                      ? 'text-amber-800'
+                                      : 'text-slate-500'
+                                  }`}
+                                >
+                                  {followUpPlan.reasonLabel}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+                              {canCollectCaisse && !isReadOnly && profile.remaining > 0 && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      const suggested =
+                                        profile.overdueFcfa > 0
+                                          ? profile.overdueFcfa
+                                          : profile.nextDueAmount || profile.remaining;
+                                      const label =
+                                        profile.nextDueLabel || 'Régularisation scolarité';
+                                      setPayForm({
+                                        amountPaid: suggested,
+                                        method: 'Espèces',
+                                        trancheLabel: label,
+                                        notes: '',
+                                      });
+                                      setCollectTarget({
+                                        student,
+                                        suggestedAmount: suggested,
+                                        trancheLabel: label,
+                                      });
+                                    }}
+                                    className="px-2.5 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded"
+                                  >
+                                    Encaisser
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      openMessageModal(student, profile, parent, followUpPlan)
+                                    }
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-emerald-900 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded"
+                                  >
+                                    <Send className="w-3 h-3" />
+                                    WhatsApp / Mail
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => openReminderModal(student, profile)}
+                                    className="px-2.5 py-1.5 text-xs font-semibold text-[#0B1933] bg-[#E5A923] hover:bg-[#d89b18] rounded"
+                                  >
+                                    Relancer
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setNoticeModal({ student, profile, latestReminder })
+                                }
+                                className="px-2.5 py-1.5 text-xs font-medium text-slate-700 border border-slate-200 rounded hover:bg-slate-100"
+                              >
+                                Avis PDF
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    )
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Journal des relances & moratoires */}
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="font-display text-base font-bold text-slate-900 flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-blue-900 shrink-0" />
+                Journal des relances & moratoires ({(state.collectionReminders || []).length})
+              </h2>
+              <span className="text-xs text-slate-500">Historique des démarches de recouvrement</span>
+            </div>
+
+            {(state.collectionReminders || []).length === 0 ? (
+              <div className="p-6 text-xs text-slate-500">
+                Aucune relance ou accord de moratoire enregistré pour l’instant.
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {(state.collectionReminders || []).map((rem) => {
+                  const stu = state.students.find((s) => s.id === rem.studentId);
+                  const par = state.parents.find((p) => p.id === rem.parentId);
+                  return (
+                    <div
+                      key={rem.id}
+                      className="px-4 sm:px-6 py-3.5 flex flex-col sm:flex-row sm:items-start justify-between gap-2 text-xs"
+                    >
+                      <div className="space-y-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          <span className="font-semibold text-slate-900">
+                            {stu ? `${stu.lastName} ${stu.firstName} (${stu.cardId})` : rem.studentId}
+                          </span>
+                          <span className="text-slate-400">·</span>
+                          <span
+                            className={`font-semibold ${
+                              rem.status === 'moratoire'
+                                ? 'text-amber-800'
+                                : rem.status === 'mise_en_demeure'
+                                  ? 'text-red-700'
+                                  : 'text-blue-900'
+                            }`}
+                          >
+                            {REMINDER_STATUS_LABELS[rem.status]}
+                          </span>
+                          <span className="text-slate-400">·</span>
+                          <span className="inline-flex items-center gap-1 text-slate-600">
+                            <PhoneCall className="w-3 h-3" />
+                            {rem.channel}
+                          </span>
+                          <span className="text-slate-400">·</span>
+                          <span className="font-mono text-[11px] font-semibold text-slate-600">
+                            {rem.isAutomatic ? 'Auto' : 'Manuel'}
+                          </span>
+                        </div>
+                        <p className="text-slate-700">{rem.notes}</p>
+                        {rem.messageBody && rem.messageBody !== rem.notes && (
+                          <p className="text-[11px] text-slate-500 bg-slate-50 border border-slate-200 rounded px-2.5 py-1.5">
+                            « {rem.messageBody} »
+                          </p>
+                        )}
+                        <div className="text-[11px] text-slate-500 flex flex-wrap gap-x-2">
+                          <span>Parent : {par?.fullName || '—'}</span>
+                          {rem.recipientContact && (
+                            <span className="font-mono text-slate-600">
+                              · Destinataire : {rem.recipientContact}
+                            </span>
+                          )}
+                          <span>· Par {rem.sentBy}</span>
+                          {rem.nextFollowUpAt && (
+                            <span className="font-mono font-semibold text-blue-900">
+                              · Relance J+3 : {formatDateFr(rem.nextFollowUpAt)}
+                            </span>
+                          )}
+                          {rem.promisedDate && (
+                            <span className="font-mono font-semibold text-amber-800">
+                              · Échéance promise : {formatDateFr(rem.promisedDate)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <div className="sm:text-right shrink-0 space-y-0.5">
+                        <div className="font-mono font-semibold text-slate-900 tabular-nums">
+                          Solde : {formatFcfa(rem.amountDueFcfa)}
+                        </div>
+                        {rem.overdueFcfa > 0 && (
+                          <div className="font-mono text-[11px] text-red-700 tabular-nums">
+                            Échu : {formatFcfa(rem.overdueFcfa)}
+                          </div>
+                        )}
+                        <div className="font-mono text-[11px] text-slate-400 tabular-nums">
+                          {formatDateTimeFr(rem.sentAt)}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* TAB 3: PARENTS & TUTEURS */}
       {activeTab === 'parents' && (
         <div className="space-y-4">
@@ -1084,12 +2520,24 @@ export const ScolariteView: React.FC<{
                       </div>
                     </div>
                     <div className="text-xs font-mono text-slate-700">{p.phone}</div>
+                    {p.email && <div className="text-xs font-mono text-slate-500">{p.email}</div>}
                     <div className="text-xs text-slate-500">{p.address}</div>
                     <div className="text-xs text-slate-600 pt-1">
                       {children.length === 0
                         ? 'Aucun enfant lié'
                         : children.map((c) => `${c.firstName} ${c.lastName} (${c.cardId})`).join(' · ')}
                     </div>
+                    {canCollectCaisse && !isReadOnly && (
+                      <div className="pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setEditingParent(p)}
+                          className="text-xs font-semibold text-blue-900 hover:underline"
+                        >
+                          Modifier WhatsApp / E-mail
+                        </button>
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -1101,9 +2549,9 @@ export const ScolariteView: React.FC<{
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
                     <th className="py-3 px-4 font-semibold">Nom complet</th>
-                    <th className="py-3 px-4 font-semibold">Téléphone & Adresse</th>
+                    <th className="py-3 px-4 font-semibold">Téléphone, E-mail & Adresse</th>
                     <th className="py-3 px-4 font-semibold">Enfants rattachés</th>
-                    <th className="py-3 px-4 font-semibold text-right">Code d’accès parent</th>
+                    <th className="py-3 px-4 font-semibold text-right">Code / Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -1114,6 +2562,9 @@ export const ScolariteView: React.FC<{
                         <td className="py-3 px-4 font-semibold text-slate-900">{p.fullName}</td>
                         <td className="py-3 px-4">
                           <div className="font-mono text-xs text-slate-800">{p.phone}</div>
+                          {p.email && (
+                            <div className="font-mono text-xs text-blue-900 mt-0.5">{p.email}</div>
+                          )}
                           <div className="text-xs text-slate-500">{p.address}</div>
                         </td>
                         <td className="py-3 px-4 text-xs text-slate-700">
@@ -1121,8 +2572,22 @@ export const ScolariteView: React.FC<{
                             ? 'Aucun enfant lié'
                             : children.map((c) => `${c.firstName} ${c.lastName} (${c.cardId})`).join(' · ')}
                         </td>
-                        <td className="py-3 px-4 text-right font-mono font-semibold text-blue-950">
-                          {p.accessCode || '—'}
+                        <td className="py-3 px-4 text-right">
+                          <div className="inline-flex items-center gap-3">
+                            <span className="font-mono font-semibold text-blue-950">
+                              {p.accessCode || '—'}
+                            </span>
+                            {canCollectCaisse && !isReadOnly && (
+                              <button
+                                type="button"
+                                onClick={() => setEditingParent(p)}
+                                title="Modifier WhatsApp / E-mail"
+                                className="p-1.5 text-slate-600 border border-slate-200 rounded hover:bg-slate-100"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -1422,9 +2887,16 @@ export const ScolariteView: React.FC<{
                   <input
                     type="text"
                     required
-                    placeholder="Téléphone (+242...)"
+                    placeholder="Téléphone / WhatsApp (+242...)"
                     value={enrollForm.newParentPhone}
                     onChange={(e) => setEnrollForm({ ...enrollForm, newParentPhone: e.target.value })}
+                    className="px-3 py-2 text-sm border border-slate-300 rounded-lg"
+                  />
+                  <input
+                    type="email"
+                    placeholder="E-mail parent (pour relances)"
+                    value={enrollForm.newParentEmail}
+                    onChange={(e) => setEnrollForm({ ...enrollForm, newParentEmail: e.target.value })}
                     className="px-3 py-2 text-sm border border-slate-300 rounded-lg"
                   />
                   <input
@@ -1439,7 +2911,7 @@ export const ScolariteView: React.FC<{
                     placeholder="Code secret parent (4 chiffres)"
                     value={enrollForm.newParentCode}
                     onChange={(e) => setEnrollForm({ ...enrollForm, newParentCode: e.target.value })}
-                    className="px-3 py-2 text-sm border border-slate-300 rounded-lg font-mono"
+                    className="px-3 py-2 text-sm border border-slate-300 rounded-lg font-mono sm:col-span-2"
                   />
                 </div>
               )}
@@ -1729,9 +3201,16 @@ export const ScolariteView: React.FC<{
               <input
                 type="text"
                 required
-                placeholder="Téléphone (+242 ...)"
+                placeholder="Téléphone / WhatsApp (+242 ...)"
                 value={parentForm.phone}
                 onChange={(e) => setParentForm({ ...parentForm, phone: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+              />
+              <input
+                type="email"
+                placeholder="Adresse e-mail (ex. parent@exemple.cg)"
+                value={parentForm.email}
+                onChange={(e) => setParentForm({ ...parentForm, email: e.target.value })}
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
               />
               <input
@@ -1753,6 +3232,93 @@ export const ScolariteView: React.FC<{
               <button
                 type="button"
                 onClick={() => setShowParentModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                disabled={busy}
+                className="px-4 py-2 text-xs font-semibold text-white bg-blue-900 rounded-lg"
+              >
+                Enregistrer
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* MODAL: EDIT PARENT CONTACT */}
+      {editingParent && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <form
+            onSubmit={handleUpdateParent}
+            className="bg-white border border-slate-200 rounded-xl max-w-md w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 my-auto"
+          >
+            <h3 className="font-display text-lg font-bold text-slate-900">
+              Coordonnées WhatsApp & E-mail
+            </h3>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Nom complet
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editingParent.fullName}
+                  onChange={(e) =>
+                    setEditingParent({ ...editingParent, fullName: e.target.value })
+                  }
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Téléphone / WhatsApp
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={editingParent.phone}
+                  onChange={(e) =>
+                    setEditingParent({
+                      ...editingParent,
+                      phone: e.target.value,
+                      whatsappPhone: e.target.value,
+                    })
+                  }
+                  className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Adresse e-mail
+                </label>
+                <input
+                  type="email"
+                  value={editingParent.email || ''}
+                  onChange={(e) => setEditingParent({ ...editingParent, email: e.target.value })}
+                  placeholder="ex. parent@exemple.cg"
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Adresse</label>
+                <input
+                  type="text"
+                  value={editingParent.address}
+                  onChange={(e) =>
+                    setEditingParent({ ...editingParent, address: e.target.value })
+                  }
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setEditingParent(null)}
                 className="px-4 py-2 text-xs font-semibold text-slate-600"
               >
                 Annuler
@@ -1848,6 +3414,316 @@ export const ScolariteView: React.FC<{
           balanceRemaining={getStudentBalance(receiptModal.student).remaining}
           settings={state.settings}
           onClose={() => setReceiptModal(null)}
+        />
+      )}
+
+      {/* MODAL: LOG COLLECTION REMINDER / MORATOIRE */}
+      {reminderTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <form
+            onSubmit={handleCreateReminder}
+            className="bg-white border border-slate-200 rounded-xl max-w-md w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 my-auto"
+          >
+            <h3 className="font-display text-lg font-bold text-slate-900">
+              Relance & Moratoire
+            </h3>
+            <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-1">
+              <div className="font-semibold text-slate-900">
+                {reminderTarget.student.lastName} {reminderTarget.student.firstName} ({reminderTarget.student.cardId})
+              </div>
+              <div className="flex flex-wrap justify-between gap-2">
+                <span>
+                  Échu en retard :{' '}
+                  <strong className="font-mono text-red-700 tabular-nums">
+                    {formatFcfa(reminderTarget.profile.overdueFcfa)}
+                  </strong>
+                </span>
+                <span>
+                  Reste total :{' '}
+                  <strong className="font-mono text-slate-900 tabular-nums">
+                    {formatFcfa(reminderTarget.profile.remaining)}
+                  </strong>
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Canal utilisé
+                </label>
+                <select
+                  value={reminderForm.channel}
+                  onChange={(e) =>
+                    setReminderForm({
+                      ...reminderForm,
+                      channel: e.target.value as ReminderChannel,
+                    })
+                  }
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+                >
+                  {REMINDER_CHANNELS.map((ch) => (
+                    <option key={ch} value={ch}>
+                      {ch}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Niveau de relance / Décision
+                </label>
+                <select
+                  value={reminderForm.status}
+                  onChange={(e) =>
+                    setReminderForm({
+                      ...reminderForm,
+                      status: e.target.value as ReminderStatus,
+                    })
+                  }
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+                >
+                  <option value="relance_1">1ère relance</option>
+                  <option value="relance_2">2ème relance</option>
+                  <option value="mise_en_demeure">Mise en demeure</option>
+                  <option value="moratoire">Accord de moratoire</option>
+                  <option value="resolu">Dossier régularisé</option>
+                </select>
+              </div>
+
+              {reminderForm.status === 'moratoire' && (
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Date limite promise de règlement
+                  </label>
+                  <input
+                    type="date"
+                    required
+                    value={reminderForm.promisedDate}
+                    onChange={(e) =>
+                      setReminderForm({ ...reminderForm, promisedDate: e.target.value })
+                    }
+                    className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Compte rendu de l’échange / Observations
+                </label>
+                <textarea
+                  rows={3}
+                  required
+                  value={reminderForm.notes}
+                  onChange={(e) => setReminderForm({ ...reminderForm, notes: e.target.value })}
+                  placeholder="Ex. Contact téléphonique avec le parent, promesse de versement..."
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setReminderTarget(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                disabled={busy}
+                className="px-4 py-2 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg"
+              >
+                {busy ? 'Enregistrement...' : 'Enregistrer la démarche'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* MODAL: WHATSAPP / EMAIL QUICK-SEND & J+3 */}
+      {messageTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <form
+            onSubmit={handleSendMessageSubmit}
+            className="bg-white border border-slate-200 rounded-xl max-w-lg w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 my-auto"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h3 className="font-display text-lg font-bold text-slate-900">
+                  Notifier le parent (WhatsApp / E-mail)
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Une relance automatique est programmée sous{' '}
+                  <span className="font-mono font-semibold text-slate-800">
+                    {currentAutoSettings.followUpDelayDays} jours
+                  </span>{' '}
+                  si le paiement n’est pas régularisé.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMessageTarget(null)}
+                className="text-xs text-slate-500 hover:text-slate-900"
+              >
+                Fermer
+              </button>
+            </div>
+
+            <div className="text-xs text-slate-600 bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-1">
+              <div className="flex flex-wrap justify-between gap-2 font-semibold text-slate-900">
+                <span>
+                  {messageTarget.student.lastName} {messageTarget.student.firstName} (
+                  {messageTarget.student.cardId})
+                </span>
+                <span className="font-mono text-red-700 tabular-nums">
+                  Échu : {formatFcfa(messageTarget.profile.overdueFcfa)}
+                </span>
+              </div>
+              <div>
+                Parent : <strong className="text-slate-800">{messageTarget.parent?.fullName || '—'}</strong>
+                {' · '}WhatsApp :{' '}
+                <span className="font-mono text-slate-800">
+                  {messageTarget.parent?.whatsappPhone || messageTarget.parent?.phone || 'Non renseigné'}
+                </span>
+              </div>
+              <div>
+                E-mail :{' '}
+                <span className="font-mono text-slate-800">
+                  {messageTarget.parent?.email || 'Non renseigné'}
+                </span>
+              </div>
+              <div className="text-[11px] font-medium text-blue-900 pt-0.5">
+                Étape calculée :{' '}
+                {messageTarget.plan.nextStep >= 2
+                  ? `Relance J+${currentAutoSettings.followUpDelayDays} (étape ${messageTarget.plan.nextStep})`
+                  : '1er avis de retard (J0)'}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Canaux d’envoi
+                </label>
+                <select
+                  value={messageForm.channel}
+                  onChange={(e) =>
+                    setMessageForm({
+                      ...messageForm,
+                      channel: e.target.value as 'whatsapp_et_email' | 'whatsapp' | 'email',
+                    })
+                  }
+                  className="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white"
+                >
+                  <option value="whatsapp_et_email">WhatsApp + E-mail</option>
+                  <option value="whatsapp">WhatsApp uniquement</option>
+                  <option value="email">E-mail uniquement</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Niveau d’alerte
+                </label>
+                <select
+                  value={messageForm.status}
+                  onChange={(e) =>
+                    setMessageForm({
+                      ...messageForm,
+                      status: e.target.value as ReminderStatus,
+                    })
+                  }
+                  className="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg bg-white"
+                >
+                  <option value="relance_1">1er avis de retard (J0)</option>
+                  <option value="relance_2">Relance J+{currentAutoSettings.followUpDelayDays}</option>
+                  <option value="mise_en_demeure">Dernier rappel / Mise en demeure</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Texte du message WhatsApp / E-mail
+              </label>
+              <textarea
+                rows={4}
+                required
+                value={messageForm.customMessage}
+                onChange={(e) =>
+                  setMessageForm({ ...messageForm, customMessage: e.target.value })
+                }
+                className="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg"
+              />
+            </div>
+
+            {(messageForm.sentWhatsappUrl || messageForm.sentMailtoUrl) && (
+              <div className="p-3 rounded-lg bg-emerald-50 border border-emerald-200 space-y-2">
+                <div className="text-xs font-semibold text-emerald-900">
+                  Envoi journalisé ! Cliquez ci-dessous pour transmettre le message :
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {messageForm.sentWhatsappUrl && (
+                    <a
+                      href={messageForm.sentWhatsappUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      Envoyer sur WhatsApp
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                  {messageForm.sentMailtoUrl && (
+                    <a
+                      href={messageForm.sentMailtoUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg"
+                    >
+                      <Mail className="w-3.5 h-3.5" />
+                      Envoyer par E-mail
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setMessageTarget(null)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600"
+              >
+                Fermer
+              </button>
+              <button
+                type="submit"
+                disabled={busy}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg"
+              >
+                <Send className="w-3.5 h-3.5" />
+                {busy ? 'Enregistrement...' : 'Enregistrer & Générer les liens'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {noticeModal && (
+        <ReminderNoticeModal
+          student={noticeModal.student}
+          schoolClass={state.classes.find((c) => c.id === noticeModal.student.classId)}
+          parent={state.parents.find((p) => p.id === noticeModal.student.parentId)}
+          profile={noticeModal.profile}
+          latestReminder={noticeModal.latestReminder}
+          settings={state.settings}
+          onClose={() => setNoticeModal(null)}
         />
       )}
     </div>

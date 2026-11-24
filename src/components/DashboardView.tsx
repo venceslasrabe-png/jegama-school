@@ -4,9 +4,11 @@ import {
   ArrowUpRight,
   BookOpen,
   Briefcase,
+  ClipboardCheck,
   CreditCard,
   GraduationCap,
   Lock,
+  Settings,
   ShieldAlert,
   UserCheck,
   Users,
@@ -18,6 +20,8 @@ import { formatDateTimeFr, formatFcfa, ROLE_LABELS } from '../utils/format';
 export type NavSection =
   | 'dashboard'
   | 'scolarite'
+  | 'recouvrement'
+  | 'notes'
   | 'secretariat'
   | 'enseignants'
   | 'surveillance'
@@ -48,6 +52,22 @@ export const DashboardView: React.FC<{
           return { allowed: true, modeLabel: 'Consulter', required: '' };
         }
         return { allowed: false, modeLabel: 'Non autorisé', required: 'Scolarité / Caisse' };
+      case 'recouvrement':
+        if (role === 'caisse' || role === 'scolarite') {
+          return { allowed: true, modeLabel: 'Relancer & encaisser', required: '' };
+        }
+        return { allowed: false, modeLabel: 'Non autorisé', required: 'Caisse / Scolarité' };
+      case 'notes':
+        if (role === 'enseignant') {
+          return { allowed: true, modeLabel: 'Enregistrer les notes', required: '' };
+        }
+        if (role === 'scolarite') {
+          return { allowed: true, modeLabel: 'Valider les notes', required: '' };
+        }
+        if (role === 'secretariat') {
+          return { allowed: true, modeLabel: 'Saisir & consulter', required: '' };
+        }
+        return { allowed: false, modeLabel: 'Non autorisé', required: 'Enseignant / Scolarité' };
       case 'secretariat':
         if (role === 'secretariat') {
           return { allowed: true, modeLabel: 'Modifier', required: '' };
@@ -76,10 +96,16 @@ export const DashboardView: React.FC<{
           return { allowed: true, modeLabel: 'Lecture seule', required: '' };
         }
         return { allowed: false, modeLabel: 'Non autorisé', required: 'Parent / Direction' };
+      case 'admin':
+        return { allowed: false, modeLabel: 'Non autorisé', required: 'Administrateur' };
       default:
         return { allowed: true, modeLabel: 'Consulter', required: '' };
     }
   };
+
+  const pendingGradesCount =
+    summary.pendingGradesCount ??
+    state.grades.filter((g) => g.validationStatus === 'en_attente').length;
 
   const modules: Array<{
     id: NavSection;
@@ -103,9 +129,33 @@ export const DashboardView: React.FC<{
           : undefined,
     },
     {
+      id: 'recouvrement',
+      title: 'Recouvrement & Relances',
+      subtitle: 'Suivi des tranches échues, avis WhatsApp / E-mail, relance auto J+3 et moratoires.',
+      metricLabel: 'Échu en retard',
+      metricValue: `${summary.overdueStudentsCount ?? 0} dossier(s) · ${formatFcfa(summary.totalOverdueFcfa ?? 0)}`,
+      icon: <ShieldAlert className="w-5 h-5 text-blue-900" />,
+      badgeCount:
+        role === 'caisse' || role === 'scolarite' || role === 'direction' || role === 'admin'
+          ? summary.pendingFollowUpsCount ?? summary.overdueStudentsCount
+          : undefined,
+    },
+    {
+      id: 'notes',
+      title: 'Notes & Validation',
+      subtitle: 'Enregistrement des notes par les enseignants et validation officielle par la Scolarité.',
+      metricLabel: 'Fiches en attente',
+      metricValue: `${pendingGradesCount} à valider · ${state.grades.length} total`,
+      icon: <ClipboardCheck className="w-5 h-5 text-blue-900" />,
+      badgeCount:
+        role === 'scolarite' || role === 'admin' || role === 'direction' || role === 'enseignant'
+          ? pendingGradesCount
+          : undefined,
+    },
+    {
       id: 'secretariat',
-      title: 'Secrétariat académique',
-      subtitle: 'Classes, matières, coefficients, saisie des notes et livraison des bulletins.',
+      title: 'Classes & Bulletins',
+      subtitle: 'Classes, matières, coefficients, calcul des rangs et livraison des bulletins.',
       metricLabel: 'Bulletins à remettre',
       metricValue: `${summary.bulletinsToDeliverCount} dossier(s)`,
       icon: <BookOpen className="w-5 h-5 text-blue-900" />,
@@ -141,6 +191,14 @@ export const DashboardView: React.FC<{
       metricLabel: 'Familles rattachées',
       metricValue: `${state.parents.length} compte(s) tuteurs`,
       icon: <Users className="w-5 h-5 text-blue-900" />,
+    },
+    {
+      id: 'admin',
+      title: 'Administration & Audit',
+      subtitle: 'Paramètres établissement, gestion des comptes, clôture annuelle et journal d’audit.',
+      metricLabel: 'Opérations tracées',
+      metricValue: `${state.auditLogs.length} entrée(s)`,
+      icon: <Settings className="w-5 h-5 text-blue-900" />,
     },
   ];
 
@@ -218,7 +276,7 @@ export const DashboardView: React.FC<{
         <h2 className="font-display text-base font-semibold text-slate-900 mb-3 sm:mb-4">
           Rubriques de gestion
         </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {modules.map((mod) => {
             const access = canAccess(mod.id);
             return (

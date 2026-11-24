@@ -34,13 +34,22 @@
   },
   "users": [
     {
+      "id": "usr-ens",
+      "username": "enseignant",
+      "fullName": "M. Alain Makosso",
+      "role": "enseignant",
+      "password": "jegama2026",
+      "active": true,
+      "lastLogin": "2026-11-24T11:12:44.971Z"
+    },
+    {
       "id": "usr-sco",
       "username": "scolarite",
       "fullName": "Mme Clarisse Mavoungou",
       "role": "scolarite",
       "password": "jegama2026",
       "active": true,
-      "lastLogin": "2026-11-17T08:05:00.000Z"
+      "lastLogin": "2026-11-24T12:14:55.955Z"
     },
     {
       "id": "usr-cai",
@@ -76,7 +85,7 @@
       "role": "direction",
       "password": "jegama2026",
       "active": true,
-      "lastLogin": "2026-11-19T10:24:44.838Z"
+      "lastLogin": "2026-11-24T11:12:44.995Z"
     },
     {
       "id": "usr-adm",
@@ -85,7 +94,7 @@
       "role": "admin",
       "password": "jegama2026",
       "active": true,
-      "lastLogin": "2026-11-19T10:24:44.825Z"
+      "lastLogin": "2026-11-24T11:12:45.001Z"
     }
   ],
   "periods": [
@@ -975,7 +984,13 @@
       "average": 16.75,
       "teacherAppreciation": "Excellente maîtrise de l’expression écrite.",
       "updatedAt": "2026-12-10T10:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-10T10:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-10T10:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-2",
@@ -989,7 +1004,13 @@
       "average": 15.75,
       "teacherAppreciation": "Raisonnement rigoureux.",
       "updatedAt": "2026-12-10T10:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-10T10:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-10T10:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-3",
@@ -1003,7 +1024,13 @@
       "average": 14.5,
       "teacherAppreciation": "Bonne participation orale.",
       "updatedAt": "2026-12-10T10:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-10T10:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-10T10:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-4",
@@ -1017,7 +1044,13 @@
       "average": 16.5,
       "teacherAppreciation": "Curiosité scientifique remarquable.",
       "updatedAt": "2026-12-10T10:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-10T10:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-10T10:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-5",
@@ -1031,7 +1064,13 @@
       "average": 13.75,
       "teacherAppreciation": "Travail sérieux, poursuivre les efforts.",
       "updatedAt": "2026-12-10T10:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-10T10:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-10T10:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-6",
@@ -1045,7 +1084,13 @@
       "average": 12.5,
       "teacherAppreciation": "Progrès réguliers.",
       "updatedAt": "2026-12-10T10:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-10T10:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-10T10:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-7",
@@ -1059,7 +1104,13 @@
       "average": 14.25,
       "teacherAppreciation": "Bon investissement.",
       "updatedAt": "2026-12-10T10:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-10T10:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-10T10:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-8",
@@ -1073,7 +1124,13 @@
       "average": 13.5,
       "teacherAppreciation": "Ensemble satisfaisant.",
       "updatedAt": "2026-12-10T10:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-10T10:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-10T10:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-9",
@@ -1087,7 +1144,13 @@
       "average": 14.5,
       "teacherAppreciation": "Très bon trimestre en algèbre.",
       "updatedAt": "2026-12-11T11:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-11T11:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-11T11:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-10",
@@ -1101,7 +1164,13 @@
       "average": 14.75,
       "teacherAppreciation": "Style fluide et soigné.",
       "updatedAt": "2026-12-11T11:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-11T11:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-11T11:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-11",
@@ -1115,7 +1184,13 @@
       "average": 16.25,
       "teacherAppreciation": "Excellente aisance à l’oral.",
       "updatedAt": "2026-12-11T11:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-11T11:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-11T11:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-12",
@@ -1129,7 +1204,13 @@
       "average": 13.75,
       "teacherAppreciation": "Bonne démarche expérimentale.",
       "updatedAt": "2026-12-11T11:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-11T11:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-11T11:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-13",
@@ -1143,7 +1224,13 @@
       "average": 14.5,
       "teacherAppreciation": "Devoirs bien structurés.",
       "updatedAt": "2026-12-11T11:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-11T11:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-11T11:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-14",
@@ -1157,7 +1244,13 @@
       "average": 11.75,
       "teacherAppreciation": "Peut encore progresser.",
       "updatedAt": "2026-12-11T11:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-11T11:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-11T11:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-15",
@@ -1171,7 +1264,13 @@
       "average": 12.5,
       "teacherAppreciation": "Des efforts notables.",
       "updatedAt": "2026-12-11T11:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-11T11:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-11T11:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-16",
@@ -1185,7 +1284,13 @@
       "average": 12.5,
       "teacherAppreciation": "Participation correcte.",
       "updatedAt": "2026-12-11T11:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-11T11:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-11T11:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-17",
@@ -1199,7 +1304,13 @@
       "average": 11,
       "teacherAppreciation": "Revoir les leçons régulièrement.",
       "updatedAt": "2026-12-11T11:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-11T11:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-11T11:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-18",
@@ -1213,7 +1324,13 @@
       "average": 12.75,
       "teacherAppreciation": "Bon comportement.",
       "updatedAt": "2026-12-11T11:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-11T11:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-11T11:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-19",
@@ -1227,7 +1344,13 @@
       "average": 16,
       "teacherAppreciation": "Esprit analytique affirmé.",
       "updatedAt": "2026-12-12T09:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-12T09:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-12T09:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-20",
@@ -1241,7 +1364,13 @@
       "average": 14.75,
       "teacherAppreciation": "Solides compétences.",
       "updatedAt": "2026-12-12T09:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-12T09:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-12T09:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-21",
@@ -1255,7 +1384,13 @@
       "average": 13.75,
       "teacherAppreciation": "Bon niveau général.",
       "updatedAt": "2026-12-12T09:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-12T09:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-12T09:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-22",
@@ -1269,7 +1404,13 @@
       "average": 13.5,
       "teacherAppreciation": "Dissertation maîtrisée.",
       "updatedAt": "2026-12-12T09:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-12T09:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-12T09:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-23",
@@ -1283,7 +1424,13 @@
       "average": 15.25,
       "teacherAppreciation": "Très bonne expression.",
       "updatedAt": "2026-12-12T09:00:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-12T09:00:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-12T09:00:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-24",
@@ -1297,7 +1444,13 @@
       "average": 16.5,
       "teacherAppreciation": "Excellente maîtrise en laboratoire.",
       "updatedAt": "2026-12-12T10:30:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-12T10:30:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-12T10:30:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-25",
@@ -1311,7 +1464,13 @@
       "average": 14.25,
       "teacherAppreciation": "Sérieux et appliqué.",
       "updatedAt": "2026-12-12T10:30:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-12T10:30:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-12T10:30:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-26",
@@ -1325,7 +1484,13 @@
       "average": 13.75,
       "teacherAppreciation": "Bon travail.",
       "updatedAt": "2026-12-12T10:30:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-12T10:30:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-12T10:30:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
     },
     {
       "id": "grd-27",
@@ -1339,7 +1504,73 @@
       "average": 12.75,
       "teacherAppreciation": "Satisfaisant.",
       "updatedAt": "2026-12-12T10:30:00.000Z",
-      "updatedBy": "Mme Nadège Moukoko"
+      "updatedBy": "Mme Nadège Moukoko",
+      "validationStatus": "valide",
+      "submittedAt": "2026-12-12T10:30:00.000Z",
+      "submittedBy": "Mme Nadège Moukoko",
+      "validatedAt": "2026-12-12T10:30:00.000Z",
+      "validatedBy": "Mme Clarisse Mavoungou",
+      "rejectionReason": null
+    },
+    {
+      "id": "grd-t2-1",
+      "studentId": "stu-1",
+      "subjectId": "sub-pri-mat",
+      "periodId": "per-t2",
+      "values": [
+        16,
+        17
+      ],
+      "average": 16.5,
+      "teacherAppreciation": "Très bonne progression en géométrie.",
+      "updatedAt": "2026-11-24T09:15:00.000Z",
+      "updatedBy": "M. Patrick Mampouya",
+      "validationStatus": "en_attente",
+      "submittedAt": "2026-11-24T09:15:00.000Z",
+      "submittedBy": "M. Patrick Mampouya",
+      "validatedAt": null,
+      "validatedBy": null,
+      "rejectionReason": null
+    },
+    {
+      "id": "grd-t2-2",
+      "studentId": "stu-6",
+      "subjectId": "sub-pri-mat",
+      "periodId": "per-t2",
+      "values": [
+        13.5,
+        14.5
+      ],
+      "average": 14,
+      "teacherAppreciation": "Bon travail, en nette hausse.",
+      "updatedAt": "2026-11-24T09:15:00.000Z",
+      "updatedBy": "M. Patrick Mampouya",
+      "validationStatus": "en_attente",
+      "submittedAt": "2026-11-24T09:15:00.000Z",
+      "submittedBy": "M. Patrick Mampouya",
+      "validatedAt": null,
+      "validatedBy": null,
+      "rejectionReason": null
+    },
+    {
+      "id": "grd-t2-3",
+      "studentId": "stu-2",
+      "subjectId": "sub-lyg-mat",
+      "periodId": "per-t2",
+      "values": [
+        15.5,
+        16
+      ],
+      "average": 15.75,
+      "teacherAppreciation": "Excellente maîtrise de l’analyse.",
+      "updatedAt": "2026-11-24T09:15:00.000Z",
+      "updatedBy": "M. Alain Makosso",
+      "validationStatus": "en_attente",
+      "submittedAt": "2026-11-24T09:15:00.000Z",
+      "submittedBy": "M. Alain Makosso",
+      "validatedAt": null,
+      "validatedBy": null,
+      "rejectionReason": null
     }
   ],
   "bulletins": [
@@ -1486,9 +1717,133 @@
       "printedAt": null,
       "deliveredAt": null,
       "receivedBy": null
+    },
+    {
+      "id": "bul-1795518765041-stu-2",
+      "studentId": "stu-2",
+      "periodId": "per-t2",
+      "classId": "cls-1ere-s",
+      "generalAverage": 0,
+      "rank": 1,
+      "totalStudents": 2,
+      "mention": "Insuffisant",
+      "absencesCount": 0,
+      "latesCount": 0,
+      "appreciation": "Efforts soutenus indispensables au prochain trimestre.",
+      "deliveryStatus": "a_editer",
+      "validatedAt": null,
+      "printedAt": null,
+      "deliveredAt": null,
+      "receivedBy": null
+    },
+    {
+      "id": "bul-1795518765041-stu-8",
+      "studentId": "stu-8",
+      "periodId": "per-t2",
+      "classId": "cls-1ere-s",
+      "generalAverage": 0,
+      "rank": 2,
+      "totalStudents": 2,
+      "mention": "Insuffisant",
+      "absencesCount": 0,
+      "latesCount": 0,
+      "appreciation": "Efforts soutenus indispensables au prochain trimestre.",
+      "deliveryStatus": "a_editer",
+      "validatedAt": null,
+      "printedAt": null,
+      "deliveredAt": null,
+      "receivedBy": null
     }
   ],
   "auditLogs": [
+    {
+      "id": "aud-1795518765148-txm7",
+      "timestamp": "2026-11-24T11:12:45.148Z",
+      "userId": "usr-adm",
+      "userName": "M. Arsène Banzouzi",
+      "userRole": "admin",
+      "action": "Suppression de note",
+      "entityType": "Note",
+      "entityId": "grd-1795518765083",
+      "details": "Note supprimée pour Chloé MAKOSSO · Anglais (Trimestre 2)"
+    },
+    {
+      "id": "aud-1795518765140-iibs",
+      "timestamp": "2026-11-24T11:12:45.140Z",
+      "userId": "usr-adm",
+      "userName": "M. Arsène Banzouzi",
+      "userRole": "admin",
+      "action": "Suppression de note",
+      "entityType": "Note",
+      "entityId": "grd-1795518765040",
+      "details": "Note supprimée pour Kévin TCHICAYA · Anglais (Trimestre 2)"
+    },
+    {
+      "id": "aud-1795518765104-2tzh",
+      "timestamp": "2026-11-24T11:12:45.104Z",
+      "userId": "usr-sco",
+      "userName": "Mme Clarisse Mavoungou",
+      "userRole": "scolarite",
+      "action": "Validation de note",
+      "entityType": "Note",
+      "entityId": "grd-1795518765083",
+      "details": "Chloé MAKOSSO · Anglais (Trimestre 2) : 18.5/20 validée"
+    },
+    {
+      "id": "aud-1795518765095-4e9x",
+      "timestamp": "2026-11-24T11:12:45.095Z",
+      "userId": "usr-sco",
+      "userName": "Mme Clarisse Mavoungou",
+      "userRole": "scolarite",
+      "action": "Validation de note",
+      "entityType": "Note",
+      "entityId": "grd-1795518765040",
+      "details": "Kévin TCHICAYA · Anglais (Trimestre 2) : 16/20 validée"
+    },
+    {
+      "id": "aud-1795518765083-9b50",
+      "timestamp": "2026-11-24T11:12:45.083Z",
+      "userId": "usr-ens",
+      "userName": "M. Alain Makosso",
+      "userRole": "enseignant",
+      "action": "Enregistrement note (en attente)",
+      "entityType": "Note",
+      "entityId": "grd-1795518765083",
+      "details": "Chloé MAKOSSO · Anglais (Trimestre 2) : 18.5/20 — En attente de validation Scolarité."
+    },
+    {
+      "id": "aud-1795518765076-v6rr",
+      "timestamp": "2026-11-24T11:12:45.076Z",
+      "userId": "usr-ens",
+      "userName": "M. Alain Makosso",
+      "userRole": "enseignant",
+      "action": "Enregistrement note (en attente)",
+      "entityType": "Note",
+      "entityId": "grd-1795518765040",
+      "details": "Kévin TCHICAYA · Anglais (Trimestre 2) : 16/20 — En attente de validation Scolarité."
+    },
+    {
+      "id": "aud-1795518765069-y54s",
+      "timestamp": "2026-11-24T11:12:45.069Z",
+      "userId": "usr-sco",
+      "userName": "Mme Clarisse Mavoungou",
+      "userRole": "scolarite",
+      "action": "Rejet de note",
+      "entityType": "Note",
+      "entityId": "grd-1795518765040",
+      "details": "Kévin TCHICAYA · Anglais (Trimestre 2) : 15/20 rejetée — Motif : Erreur de saisie copie 2"
+    },
+    {
+      "id": "aud-1795518765041-fm41",
+      "timestamp": "2026-11-24T11:12:45.041Z",
+      "userId": "usr-ens",
+      "userName": "M. Alain Makosso",
+      "userRole": "enseignant",
+      "action": "Enregistrement note (en attente)",
+      "entityType": "Note",
+      "entityId": "grd-1795518765040",
+      "details": "Kévin TCHICAYA · Anglais (Trimestre 2) : 15/20 — En attente de validation Scolarité."
+    },
     {
       "id": "aud-1795083885147-r8bp",
       "timestamp": "2026-11-19T10:24:45.147Z",
@@ -1770,7 +2125,9 @@
     "receiptSeq": 7,
     "teacherSeq": 9,
     "payslipSeq": 8,
-    "archivesSeeded": true
+    "archivesSeeded": true,
+    "gradeWorkflowSeeded": true,
+    "collectionRemindersSeeded": true
   },
   "archivedYears": [
     {
@@ -2833,6 +3190,34 @@
       "notes": "Semaine 4 · Cours assurés",
       "recordedBy": "Mme Nadège Moukoko",
       "createdAt": "2026-11-17T12:00:00.000Z"
+    }
+  ],
+  "collectionReminders": [
+    {
+      "id": "rem-seed-1",
+      "studentId": "stu-6",
+      "parentId": "par-2",
+      "channel": "Appel téléphonique",
+      "status": "relance_1",
+      "amountDueFcfa": 480000,
+      "overdueFcfa": 200000,
+      "promisedDate": null,
+      "notes": "Premier appel de relance à Mme Hortense Tchicaya pour la 1ère tranche échue le 15/09/2026.",
+      "sentAt": "2026-11-19T10:30:00.000Z",
+      "sentBy": "M. Brice Loubaki"
+    },
+    {
+      "id": "rem-seed-2",
+      "studentId": "stu-8",
+      "parentId": "par-4",
+      "channel": "Courrier / Convocation",
+      "status": "moratoire",
+      "amountDueFcfa": 750000,
+      "overdueFcfa": 310000,
+      "promisedDate": "2026-12-01",
+      "notes": "Accord de moratoire signé avec Mme Eugénie Loubaki pour régularisation de l’inscription et 1ère tranche.",
+      "sentAt": "2026-11-21T14:15:00.000Z",
+      "sentBy": "Mme Clarisse Mavoungou"
     }
   ]
 }

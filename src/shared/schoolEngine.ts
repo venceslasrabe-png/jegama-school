@@ -5,12 +5,20 @@ import type {
   AttendanceLog,
   AuditLog,
   Bulletin,
+  CollectionAutomationSettings,
+  CollectionReminder,
   CycleHourlyRate,
   DashboardSummary,
   EvaluationPeriod,
+  ParentTutor,
   PayslipPaymentMethod,
+  ReminderChannel,
+  ReminderStatus,
   SchoolDatabase,
   Student,
+  StudentFollowUpPlan,
+  StudentInstallmentBreakdown,
+  StudentRecoveryProfile,
   Teacher,
   TeacherHourLog,
   TeacherPayslip,
@@ -809,6 +817,209 @@ export function ensureArchiveSeedData(db: SchoolDatabase): SchoolDatabase {
   return db;
 }
 
+export function ensureGradeWorkflowData(db: SchoolDatabase): SchoolDatabase {
+  if (!Array.isArray(db.users)) {
+    db.users = [];
+  }
+  const hasTeacherUser = db.users.some((u) => u.role === 'enseignant');
+  if (!hasTeacherUser) {
+    db.users.unshift({
+      id: 'usr-ens',
+      username: 'enseignant',
+      fullName: 'M. Alain Makosso',
+      role: 'enseignant',
+      password: 'jegama2026',
+      active: true,
+      lastLogin: isoDaysAgo(0, 8, 25).iso,
+    });
+  }
+
+  if (!Array.isArray(db.grades)) {
+    db.grades = [];
+  }
+
+  // Normalize legacy grades without validationStatus to 'valide'
+  for (const g of db.grades) {
+    if (!g.validationStatus) {
+      g.validationStatus = 'valide';
+      g.submittedAt = g.submittedAt || g.updatedAt;
+      g.submittedBy = g.submittedBy || g.updatedBy;
+      g.validatedAt = g.validatedAt || g.updatedAt;
+      g.validatedBy = g.validatedBy || 'Mme Clarisse Mavoungou';
+      g.rejectionReason = null;
+    }
+  }
+
+  if (!db.counters) {
+    db.counters = { cardSeq: 8, receiptSeq: 6 };
+  }
+
+  if (!db.counters.gradeWorkflowSeeded) {
+    db.counters.gradeWorkflowSeeded = true;
+    const hasT2 = db.periods?.some((p) => p.id === 'per-t2');
+    const hasAnyPending = db.grades.some((g) => g.validationStatus === 'en_attente');
+    if (hasT2 && !hasAnyPending) {
+      const submittedAt = isoDaysAgo(0, 9, 15).iso;
+      const samples: Array<{
+        id: string;
+        studentId: string;
+        subjectId: string;
+        periodId: string;
+        values: number[];
+        average: number;
+        teacherAppreciation: string;
+        submittedBy: string;
+      }> = [
+        {
+          id: 'grd-t2-1',
+          studentId: 'stu-1',
+          subjectId: 'sub-pri-mat',
+          periodId: 'per-t2',
+          values: [16, 17],
+          average: 16.5,
+          teacherAppreciation: 'Très bonne progression en géométrie.',
+          submittedBy: 'M. Patrick Mampouya',
+        },
+        {
+          id: 'grd-t2-2',
+          studentId: 'stu-6',
+          subjectId: 'sub-pri-mat',
+          periodId: 'per-t2',
+          values: [13.5, 14.5],
+          average: 14,
+          teacherAppreciation: 'Bon travail, en nette hausse.',
+          submittedBy: 'M. Patrick Mampouya',
+        },
+        {
+          id: 'grd-t2-3',
+          studentId: 'stu-2',
+          subjectId: 'sub-lyg-mat',
+          periodId: 'per-t2',
+          values: [15.5, 16],
+          average: 15.75,
+          teacherAppreciation: 'Excellente maîtrise de l’analyse.',
+          submittedBy: 'M. Alain Makosso',
+        },
+      ];
+
+      for (const s of samples) {
+        const exists = db.grades.some(
+          (g) =>
+            g.studentId === s.studentId &&
+            g.subjectId === s.subjectId &&
+            g.periodId === s.periodId
+        );
+        if (!exists && db.students.some((st) => st.id === s.studentId)) {
+          db.grades.push({
+            id: s.id,
+            studentId: s.studentId,
+            subjectId: s.subjectId,
+            periodId: s.periodId,
+            values: s.values,
+            average: s.average,
+            teacherAppreciation: s.teacherAppreciation,
+            updatedAt: submittedAt,
+            updatedBy: s.submittedBy,
+            validationStatus: 'en_attente',
+            submittedAt,
+            submittedBy: s.submittedBy,
+            validatedAt: null,
+            validatedBy: null,
+            rejectionReason: null,
+          });
+        }
+      }
+    }
+  }
+
+  return db;
+}
+
+export function getDefaultCollectionAutomation(): CollectionAutomationSettings {
+  return {
+    autoNotifyOnOverdue: true,
+    primaryChannel: 'whatsapp_et_email',
+    followUpDelayDays: 3,
+    maxAutoReminders: 3,
+    lastAutoRunAt: null,
+  };
+}
+
+export function createSeedCollectionReminders(): CollectionReminder[] {
+  return [
+    {
+      id: 'rem-seed-1',
+      studentId: 'stu-6',
+      parentId: 'par-2',
+      channel: 'SMS / WhatsApp',
+      status: 'relance_1',
+      amountDueFcfa: 480000,
+      overdueFcfa: 200000,
+      promisedDate: null,
+      notes: '1er avis de retard envoyé par WhatsApp à Mme Hortense Tchicaya (1ère tranche échue le 15/09/2026).',
+      sentAt: isoDaysAgo(5, 10, 30).iso,
+      sentBy: 'M. Brice Loubaki',
+      recipientContact: '+242 05 534 19 22',
+      deliveryState: 'envoye',
+      isAutomatic: true,
+      sequenceStep: 1,
+      nextFollowUpAt: isoDaysAgo(2, 10, 30).iso,
+      messageBody:
+        'Bonjour Mme Hortense Tchicaya, JEGAMA SCHOOL vous informe que la 1ère tranche de scolarité de Merveille BANZOUZI (JS-26-0006) présente un retard de 200 000 FCFA. Merci de régulariser sous 3 jours.',
+    },
+    {
+      id: 'rem-seed-2',
+      studentId: 'stu-8',
+      parentId: 'par-4',
+      channel: 'Courrier / Convocation',
+      status: 'moratoire',
+      amountDueFcfa: 750000,
+      overdueFcfa: 310000,
+      promisedDate: isoDaysAgo(-7, 12, 0).dateStr,
+      notes: 'Accord de moratoire signé avec Mme Eugénie Loubaki pour régularisation de l’inscription et 1ère tranche.',
+      sentAt: isoDaysAgo(3, 14, 15).iso,
+      sentBy: 'Mme Clarisse Mavoungou',
+      recipientContact: '+242 06 441 72 15',
+      deliveryState: 'envoye',
+      isAutomatic: false,
+      sequenceStep: 1,
+      nextFollowUpAt: null,
+    },
+  ];
+}
+
+export function ensureRecouvrementData(db: SchoolDatabase): SchoolDatabase {
+  if (!Array.isArray(db.collectionReminders)) {
+    db.collectionReminders = [];
+  }
+  if (!db.settings.collectionAutomation) {
+    db.settings.collectionAutomation = getDefaultCollectionAutomation();
+  }
+  const seedEmails: Record<string, string> = {
+    'par-1': 'bienvenu.makosso@exemple.cg',
+    'par-2': 'hortense.tchicaya@exemple.cg',
+    'par-3': 'dieudonne.ngoma@exemple.cg',
+    'par-4': 'eugenie.loubaki@exemple.cg',
+  };
+  if (Array.isArray(db.parents)) {
+    for (const p of db.parents) {
+      if (!p.email && seedEmails[p.id]) {
+        p.email = seedEmails[p.id];
+      }
+    }
+  }
+  if (!db.counters) {
+    db.counters = { cardSeq: 8, receiptSeq: 6 };
+  }
+  if (!db.counters.collectionRemindersSeeded) {
+    db.counters.collectionRemindersSeeded = true;
+    if (db.collectionReminders.length === 0 && Array.isArray(db.students) && db.students.some((s) => s.id === 'stu-6')) {
+      db.collectionReminders = createSeedCollectionReminders();
+    }
+  }
+  return db;
+}
+
 export function createSeedDatabase(): SchoolDatabase {
   const today = getTodayStr();
   const y1 = isoDaysAgo(1, 7, 25);
@@ -837,8 +1048,18 @@ export function createSeedDatabase(): SchoolDatabase {
         { label: 'Insuffisant', minScore: 0 },
       ],
       lastBackupAt: new Date(Date.now() - 86400000).toISOString(),
+      collectionAutomation: getDefaultCollectionAutomation(),
     },
     users: [
+      {
+        id: 'usr-ens',
+        username: 'enseignant',
+        fullName: 'M. Alain Makosso',
+        role: 'enseignant',
+        password: 'jegama2026',
+        active: true,
+        lastLogin: isoDaysAgo(0, 8, 25).iso,
+      },
       {
         id: 'usr-sco',
         username: 'scolarite',
@@ -1103,6 +1324,7 @@ export function createSeedDatabase(): SchoolDatabase {
         id: 'par-1',
         fullName: 'M. Bienvenu Makosso',
         phone: '+242 06 612 45 89',
+        email: 'bienvenu.makosso@exemple.cg',
         address: 'Avenue Charles de Gaulle, Mpita, Pointe-Noire',
         accessCode: '2468',
         failedAttempts: 0,
@@ -1112,6 +1334,7 @@ export function createSeedDatabase(): SchoolDatabase {
         id: 'par-2',
         fullName: 'Mme Hortense Tchicaya',
         phone: '+242 05 534 19 22',
+        email: 'hortense.tchicaya@exemple.cg',
         address: 'Quartier Côte Sauvage, Pointe-Noire',
         accessCode: '1357',
         failedAttempts: 0,
@@ -1121,6 +1344,7 @@ export function createSeedDatabase(): SchoolDatabase {
         id: 'par-3',
         fullName: 'M. Dieudonné Ngoma',
         phone: '+242 06 890 11 40',
+        email: 'dieudonne.ngoma@exemple.cg',
         address: 'Tié-Tié, Rue Mboukou, Pointe-Noire',
         accessCode: '4321',
         failedAttempts: 0,
@@ -1130,6 +1354,7 @@ export function createSeedDatabase(): SchoolDatabase {
         id: 'par-4',
         fullName: 'Mme Eugénie Loubaki',
         phone: '+242 06 441 72 15',
+        email: 'eugenie.loubaki@exemple.cg',
         address: 'Mpita-Wharf, Impasse Océan, Pointe-Noire',
         accessCode: '8800',
         failedAttempts: 0,
@@ -1386,6 +1611,7 @@ export function createSeedDatabase(): SchoolDatabase {
         notes: '',
       },
     ],
+    collectionReminders: createSeedCollectionReminders(),
     attendanceLogs: [
       {
         id: 'att-1',
@@ -1529,38 +1755,42 @@ export function createSeedDatabase(): SchoolDatabase {
       },
     ],
     grades: [
-      { id: 'grd-1', studentId: 'stu-1', subjectId: 'sub-pri-fr', periodId: 'per-t1', values: [16, 17.5], average: 16.75, teacherAppreciation: 'Excellente maîtrise de l’expression écrite.', updatedAt: '2026-12-10T10:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-2', studentId: 'stu-1', subjectId: 'sub-pri-mat', periodId: 'per-t1', values: [15.5, 16], average: 15.75, teacherAppreciation: 'Raisonnement rigoureux.', updatedAt: '2026-12-10T10:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-3', studentId: 'stu-1', subjectId: 'sub-pri-hg', periodId: 'per-t1', values: [14, 15], average: 14.5, teacherAppreciation: 'Bonne participation orale.', updatedAt: '2026-12-10T10:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-4', studentId: 'stu-1', subjectId: 'sub-pri-sci', periodId: 'per-t1', values: [17, 16], average: 16.5, teacherAppreciation: 'Curiosité scientifique remarquable.', updatedAt: '2026-12-10T10:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
+      { id: 'grd-1', studentId: 'stu-1', subjectId: 'sub-pri-fr', periodId: 'per-t1', values: [16, 17.5], average: 16.75, teacherAppreciation: 'Excellente maîtrise de l’expression écrite.', updatedAt: '2026-12-10T10:00:00.000Z', updatedBy: 'M. Patrick Mampouya', validationStatus: 'valide', submittedAt: '2026-12-10T10:00:00.000Z', submittedBy: 'M. Patrick Mampouya', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-2', studentId: 'stu-1', subjectId: 'sub-pri-mat', periodId: 'per-t1', values: [15.5, 16], average: 15.75, teacherAppreciation: 'Raisonnement rigoureux.', updatedAt: '2026-12-10T10:00:00.000Z', updatedBy: 'M. Patrick Mampouya', validationStatus: 'valide', submittedAt: '2026-12-10T10:00:00.000Z', submittedBy: 'M. Patrick Mampouya', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-3', studentId: 'stu-1', subjectId: 'sub-pri-hg', periodId: 'per-t1', values: [14, 15], average: 14.5, teacherAppreciation: 'Bonne participation orale.', updatedAt: '2026-12-10T10:00:00.000Z', updatedBy: 'Mme Carole Bakala', validationStatus: 'valide', submittedAt: '2026-12-10T10:00:00.000Z', submittedBy: 'Mme Carole Bakala', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-4', studentId: 'stu-1', subjectId: 'sub-pri-sci', periodId: 'per-t1', values: [17, 16], average: 16.5, teacherAppreciation: 'Curiosité scientifique remarquable.', updatedAt: '2026-12-10T10:00:00.000Z', updatedBy: 'M. Patrick Mampouya', validationStatus: 'valide', submittedAt: '2026-12-10T10:00:00.000Z', submittedBy: 'M. Patrick Mampouya', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
 
-      { id: 'grd-5', studentId: 'stu-6', subjectId: 'sub-pri-fr', periodId: 'per-t1', values: [13.5, 14], average: 13.75, teacherAppreciation: 'Travail sérieux, poursuivre les efforts.', updatedAt: '2026-12-10T10:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-6', studentId: 'stu-6', subjectId: 'sub-pri-mat', periodId: 'per-t1', values: [12, 13], average: 12.5, teacherAppreciation: 'Progrès réguliers.', updatedAt: '2026-12-10T10:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-7', studentId: 'stu-6', subjectId: 'sub-pri-hg', periodId: 'per-t1', values: [14, 14.5], average: 14.25, teacherAppreciation: 'Bon investissement.', updatedAt: '2026-12-10T10:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-8', studentId: 'stu-6', subjectId: 'sub-pri-sci', periodId: 'per-t1', values: [13, 14], average: 13.5, teacherAppreciation: 'Ensemble satisfaisant.', updatedAt: '2026-12-10T10:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
+      { id: 'grd-5', studentId: 'stu-6', subjectId: 'sub-pri-fr', periodId: 'per-t1', values: [13.5, 14], average: 13.75, teacherAppreciation: 'Travail sérieux, poursuivre les efforts.', updatedAt: '2026-12-10T10:00:00.000Z', updatedBy: 'M. Patrick Mampouya', validationStatus: 'valide', submittedAt: '2026-12-10T10:00:00.000Z', submittedBy: 'M. Patrick Mampouya', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-6', studentId: 'stu-6', subjectId: 'sub-pri-mat', periodId: 'per-t1', values: [12, 13], average: 12.5, teacherAppreciation: 'Progrès réguliers.', updatedAt: '2026-12-10T10:00:00.000Z', updatedBy: 'M. Patrick Mampouya', validationStatus: 'valide', submittedAt: '2026-12-10T10:00:00.000Z', submittedBy: 'M. Patrick Mampouya', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-7', studentId: 'stu-6', subjectId: 'sub-pri-hg', periodId: 'per-t1', values: [14, 14.5], average: 14.25, teacherAppreciation: 'Bon investissement.', updatedAt: '2026-12-10T10:00:00.000Z', updatedBy: 'Mme Carole Bakala', validationStatus: 'valide', submittedAt: '2026-12-10T10:00:00.000Z', submittedBy: 'Mme Carole Bakala', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-8', studentId: 'stu-6', subjectId: 'sub-pri-sci', periodId: 'per-t1', values: [13, 14], average: 13.5, teacherAppreciation: 'Ensemble satisfaisant.', updatedAt: '2026-12-10T10:00:00.000Z', updatedBy: 'M. Patrick Mampouya', validationStatus: 'valide', submittedAt: '2026-12-10T10:00:00.000Z', submittedBy: 'M. Patrick Mampouya', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
 
-      { id: 'grd-9', studentId: 'stu-3', subjectId: 'sub-col-mat', periodId: 'per-t1', values: [14, 15], average: 14.5, teacherAppreciation: 'Très bon trimestre en algèbre.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-10', studentId: 'stu-3', subjectId: 'sub-col-fr', periodId: 'per-t1', values: [15, 14.5], average: 14.75, teacherAppreciation: 'Style fluide et soigné.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-11', studentId: 'stu-3', subjectId: 'sub-col-ang', periodId: 'per-t1', values: [16, 16.5], average: 16.25, teacherAppreciation: 'Excellente aisance à l’oral.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-12', studentId: 'stu-3', subjectId: 'sub-col-pc', periodId: 'per-t1', values: [13.5, 14], average: 13.75, teacherAppreciation: 'Bonne démarche expérimentale.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-13', studentId: 'stu-3', subjectId: 'sub-col-hg', periodId: 'per-t1', values: [15, 14], average: 14.5, teacherAppreciation: 'Devoirs bien structurés.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
+      { id: 'grd-9', studentId: 'stu-3', subjectId: 'sub-col-mat', periodId: 'per-t1', values: [14, 15], average: 14.5, teacherAppreciation: 'Très bon trimestre en algèbre.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'M. Hervé Kengue', validationStatus: 'valide', submittedAt: '2026-12-11T11:00:00.000Z', submittedBy: 'M. Hervé Kengue', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-10', studentId: 'stu-3', subjectId: 'sub-col-fr', periodId: 'per-t1', values: [15, 14.5], average: 14.75, teacherAppreciation: 'Style fluide et soigné.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'Mme Mireille Nkouka', validationStatus: 'valide', submittedAt: '2026-12-11T11:00:00.000Z', submittedBy: 'Mme Mireille Nkouka', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-11', studentId: 'stu-3', subjectId: 'sub-col-ang', periodId: 'per-t1', values: [16, 16.5], average: 16.25, teacherAppreciation: 'Excellente aisance à l’oral.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'M. David Oko', validationStatus: 'valide', submittedAt: '2026-12-11T11:00:00.000Z', submittedBy: 'M. David Oko', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-12', studentId: 'stu-3', subjectId: 'sub-col-pc', periodId: 'per-t1', values: [13.5, 14], average: 13.75, teacherAppreciation: 'Bonne démarche expérimentale.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'Mme Chantal Mbemba', validationStatus: 'valide', submittedAt: '2026-12-11T11:00:00.000Z', submittedBy: 'Mme Chantal Mbemba', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-13', studentId: 'stu-3', subjectId: 'sub-col-hg', periodId: 'per-t1', values: [15, 14], average: 14.5, teacherAppreciation: 'Devoirs bien structurés.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'M. Serge Ngatsono', validationStatus: 'valide', submittedAt: '2026-12-11T11:00:00.000Z', submittedBy: 'M. Serge Ngatsono', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
 
-      { id: 'grd-14', studentId: 'stu-7', subjectId: 'sub-col-mat', periodId: 'per-t1', values: [11, 12.5], average: 11.75, teacherAppreciation: 'Peut encore progresser.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-15', studentId: 'stu-7', subjectId: 'sub-col-fr', periodId: 'per-t1', values: [12, 13], average: 12.5, teacherAppreciation: 'Des efforts notables.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-16', studentId: 'stu-7', subjectId: 'sub-col-ang', periodId: 'per-t1', values: [13, 12], average: 12.5, teacherAppreciation: 'Participation correcte.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-17', studentId: 'stu-7', subjectId: 'sub-col-pc', periodId: 'per-t1', values: [10.5, 11.5], average: 11, teacherAppreciation: 'Revoir les leçons régulièrement.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-18', studentId: 'stu-7', subjectId: 'sub-col-hg', periodId: 'per-t1', values: [12.5, 13], average: 12.75, teacherAppreciation: 'Bon comportement.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
+      { id: 'grd-14', studentId: 'stu-7', subjectId: 'sub-col-mat', periodId: 'per-t1', values: [11, 12.5], average: 11.75, teacherAppreciation: 'Peut encore progresser.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'M. Hervé Kengue', validationStatus: 'valide', submittedAt: '2026-12-11T11:00:00.000Z', submittedBy: 'M. Hervé Kengue', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-15', studentId: 'stu-7', subjectId: 'sub-col-fr', periodId: 'per-t1', values: [12, 13], average: 12.5, teacherAppreciation: 'Des efforts notables.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'Mme Mireille Nkouka', validationStatus: 'valide', submittedAt: '2026-12-11T11:00:00.000Z', submittedBy: 'Mme Mireille Nkouka', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-16', studentId: 'stu-7', subjectId: 'sub-col-ang', periodId: 'per-t1', values: [13, 12], average: 12.5, teacherAppreciation: 'Participation correcte.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'M. David Oko', validationStatus: 'valide', submittedAt: '2026-12-11T11:00:00.000Z', submittedBy: 'M. David Oko', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-17', studentId: 'stu-7', subjectId: 'sub-col-pc', periodId: 'per-t1', values: [10.5, 11.5], average: 11, teacherAppreciation: 'Revoir les leçons régulièrement.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'Mme Chantal Mbemba', validationStatus: 'valide', submittedAt: '2026-12-11T11:00:00.000Z', submittedBy: 'Mme Chantal Mbemba', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-18', studentId: 'stu-7', subjectId: 'sub-col-hg', periodId: 'per-t1', values: [12.5, 13], average: 12.75, teacherAppreciation: 'Bon comportement.', updatedAt: '2026-12-11T11:00:00.000Z', updatedBy: 'M. Serge Ngatsono', validationStatus: 'valide', submittedAt: '2026-12-11T11:00:00.000Z', submittedBy: 'M. Serge Ngatsono', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
 
-      { id: 'grd-19', studentId: 'stu-2', subjectId: 'sub-lyg-mat', periodId: 'per-t1', values: [15.5, 16.5], average: 16, teacherAppreciation: 'Esprit analytique affirmé.', updatedAt: '2026-12-12T09:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-20', studentId: 'stu-2', subjectId: 'sub-lyg-pc', periodId: 'per-t1', values: [14.5, 15], average: 14.75, teacherAppreciation: 'Solides compétences.', updatedAt: '2026-12-12T09:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-21', studentId: 'stu-2', subjectId: 'sub-lyg-svt', periodId: 'per-t1', values: [14, 13.5], average: 13.75, teacherAppreciation: 'Bon niveau général.', updatedAt: '2026-12-12T09:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-22', studentId: 'stu-2', subjectId: 'sub-lyg-fr', periodId: 'per-t1', values: [13, 14], average: 13.5, teacherAppreciation: 'Dissertation maîtrisée.', updatedAt: '2026-12-12T09:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-23', studentId: 'stu-2', subjectId: 'sub-lyg-ang', periodId: 'per-t1', values: [15, 15.5], average: 15.25, teacherAppreciation: 'Très bonne expression.', updatedAt: '2026-12-12T09:00:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
+      { id: 'grd-19', studentId: 'stu-2', subjectId: 'sub-lyg-mat', periodId: 'per-t1', values: [15.5, 16.5], average: 16, teacherAppreciation: 'Esprit analytique affirmé.', updatedAt: '2026-12-12T09:00:00.000Z', updatedBy: 'M. Alain Makosso', validationStatus: 'valide', submittedAt: '2026-12-12T09:00:00.000Z', submittedBy: 'M. Alain Makosso', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-20', studentId: 'stu-2', subjectId: 'sub-lyg-pc', periodId: 'per-t1', values: [14.5, 15], average: 14.75, teacherAppreciation: 'Solides compétences.', updatedAt: '2026-12-12T09:00:00.000Z', updatedBy: 'Mme Sandrine Bouanga', validationStatus: 'valide', submittedAt: '2026-12-12T09:00:00.000Z', submittedBy: 'Mme Sandrine Bouanga', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-21', studentId: 'stu-2', subjectId: 'sub-lyg-svt', periodId: 'per-t1', values: [14, 13.5], average: 13.75, teacherAppreciation: 'Bon niveau général.', updatedAt: '2026-12-12T09:00:00.000Z', updatedBy: 'M. Gervais Poaty', validationStatus: 'valide', submittedAt: '2026-12-12T09:00:00.000Z', submittedBy: 'M. Gervais Poaty', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-22', studentId: 'stu-2', subjectId: 'sub-lyg-fr', periodId: 'per-t1', values: [13, 14], average: 13.5, teacherAppreciation: 'Dissertation maîtrisée.', updatedAt: '2026-12-12T09:00:00.000Z', updatedBy: 'Mme Laure Tchibinda', validationStatus: 'valide', submittedAt: '2026-12-12T09:00:00.000Z', submittedBy: 'Mme Laure Tchibinda', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-23', studentId: 'stu-2', subjectId: 'sub-lyg-ang', periodId: 'per-t1', values: [15, 15.5], average: 15.25, teacherAppreciation: 'Très bonne expression.', updatedAt: '2026-12-12T09:00:00.000Z', updatedBy: 'M. David Oko', validationStatus: 'valide', submittedAt: '2026-12-12T09:00:00.000Z', submittedBy: 'M. David Oko', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
 
-      { id: 'grd-24', studentId: 'stu-5', subjectId: 'sub-lyt-el', periodId: 'per-t1', values: [16, 17], average: 16.5, teacherAppreciation: 'Excellente maîtrise en laboratoire.', updatedAt: '2026-12-12T10:30:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-25', studentId: 'stu-5', subjectId: 'sub-lyt-mat', periodId: 'per-t1', values: [14, 14.5], average: 14.25, teacherAppreciation: 'Sérieux et appliqué.', updatedAt: '2026-12-12T10:30:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-26', studentId: 'stu-5', subjectId: 'sub-lyt-pc', periodId: 'per-t1', values: [13.5, 14], average: 13.75, teacherAppreciation: 'Bon travail.', updatedAt: '2026-12-12T10:30:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
-      { id: 'grd-27', studentId: 'stu-5', subjectId: 'sub-lyt-fr', periodId: 'per-t1', values: [12.5, 13], average: 12.75, teacherAppreciation: 'Satisfaisant.', updatedAt: '2026-12-12T10:30:00.000Z', updatedBy: 'Mme Nadège Moukoko' },
+      { id: 'grd-24', studentId: 'stu-5', subjectId: 'sub-lyt-el', periodId: 'per-t1', values: [16, 17], average: 16.5, teacherAppreciation: 'Excellente maîtrise en laboratoire.', updatedAt: '2026-12-12T10:30:00.000Z', updatedBy: 'Ing. Thierry Samba', validationStatus: 'valide', submittedAt: '2026-12-12T10:30:00.000Z', submittedBy: 'Ing. Thierry Samba', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-25', studentId: 'stu-5', subjectId: 'sub-lyt-mat', periodId: 'per-t1', values: [14, 14.5], average: 14.25, teacherAppreciation: 'Sérieux et appliqué.', updatedAt: '2026-12-12T10:30:00.000Z', updatedBy: 'M. Alain Makosso', validationStatus: 'valide', submittedAt: '2026-12-12T10:30:00.000Z', submittedBy: 'M. Alain Makosso', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-26', studentId: 'stu-5', subjectId: 'sub-lyt-pc', periodId: 'per-t1', values: [13.5, 14], average: 13.75, teacherAppreciation: 'Bon travail.', updatedAt: '2026-12-12T10:30:00.000Z', updatedBy: 'Mme Sandrine Bouanga', validationStatus: 'valide', submittedAt: '2026-12-12T10:30:00.000Z', submittedBy: 'Mme Sandrine Bouanga', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+      { id: 'grd-27', studentId: 'stu-5', subjectId: 'sub-lyt-fr', periodId: 'per-t1', values: [12.5, 13], average: 12.75, teacherAppreciation: 'Satisfaisant.', updatedAt: '2026-12-12T10:30:00.000Z', updatedBy: 'Mme Laure Tchibinda', validationStatus: 'valide', submittedAt: '2026-12-12T10:30:00.000Z', submittedBy: 'Mme Laure Tchibinda', validatedAt: '2026-12-12T14:00:00.000Z', validatedBy: 'Mme Clarisse Mavoungou', rejectionReason: null },
+
+      { id: 'grd-t2-1', studentId: 'stu-1', subjectId: 'sub-pri-mat', periodId: 'per-t2', values: [16, 17], average: 16.5, teacherAppreciation: 'Très bonne progression en géométrie.', updatedAt: isoDaysAgo(0, 9, 15).iso, updatedBy: 'M. Patrick Mampouya', validationStatus: 'en_attente', submittedAt: isoDaysAgo(0, 9, 15).iso, submittedBy: 'M. Patrick Mampouya', validatedAt: null, validatedBy: null, rejectionReason: null },
+      { id: 'grd-t2-2', studentId: 'stu-6', subjectId: 'sub-pri-mat', periodId: 'per-t2', values: [13.5, 14.5], average: 14, teacherAppreciation: 'Bon travail, en nette hausse.', updatedAt: isoDaysAgo(0, 9, 15).iso, updatedBy: 'M. Patrick Mampouya', validationStatus: 'en_attente', submittedAt: isoDaysAgo(0, 9, 15).iso, submittedBy: 'M. Patrick Mampouya', validatedAt: null, validatedBy: null, rejectionReason: null },
+      { id: 'grd-t2-3', studentId: 'stu-2', subjectId: 'sub-lyg-mat', periodId: 'per-t2', values: [15.5, 16], average: 15.75, teacherAppreciation: 'Excellente maîtrise de l’analyse.', updatedAt: isoDaysAgo(0, 9, 20).iso, updatedBy: 'M. Alain Makosso', validationStatus: 'en_attente', submittedAt: isoDaysAgo(0, 9, 20).iso, submittedBy: 'M. Alain Makosso', validatedAt: null, validatedBy: null, rejectionReason: null },
     ],
     bulletins: [
       {
@@ -1703,6 +1933,8 @@ export function createSeedDatabase(): SchoolDatabase {
       teacherSeq: seedTeachers.length,
       payslipSeq: seedPayslips.length,
       archivesSeeded: true,
+      gradeWorkflowSeeded: true,
+      collectionRemindersSeeded: true,
     },
   };
 }
@@ -1732,7 +1964,7 @@ export function addAuditLog(
   }
 }
 
-export function computeStudentBalance(db: SchoolDatabase, student: Student) {
+export function computeStudentBalance(db: Pick<SchoolDatabase, 'feeGrid' | 'payments'>, student: Student) {
   const fee = db.feeGrid.find(
     (f) => f.cycle === student.cycle && f.program === student.program
   );
@@ -1743,6 +1975,389 @@ export function computeStudentBalance(db: SchoolDatabase, student: Student) {
   const remaining = Math.max(0, expected - paid);
   const status = remaining === 0 ? 'solde' : paid > 0 ? 'partiel' : 'impaye';
   return { expected, paid, remaining, status };
+}
+
+function diffDaysYmd(earlierYmd: string, laterYmd: string): number {
+  const [y1, m1, d1] = earlierYmd.split('-').map(Number);
+  const [y2, m2, d2] = laterYmd.split('-').map(Number);
+  if (!y1 || !m1 || !d1 || !y2 || !m2 || !d2) return 0;
+  const t1 = Date.UTC(y1, m1 - 1, d1);
+  const t2 = Date.UTC(y2, m2 - 1, d2);
+  return Math.max(0, Math.round((t2 - t1) / 86400000));
+}
+
+export function computeStudentRecoveryProfile(
+  db: Pick<SchoolDatabase, 'feeGrid' | 'payments'>,
+  student: Student,
+  asOfDateStr?: string
+): StudentRecoveryProfile {
+  const fee = db.feeGrid.find(
+    (f) => f.cycle === student.cycle && f.program === student.program
+  );
+  const expected = fee ? fee.registrationFee + fee.annualTuition : 250000;
+  const paid = db.payments
+    .filter((p) => p.studentId === student.id)
+    .reduce((sum, p) => sum + p.amountPaid, 0);
+  const remaining = Math.max(0, expected - paid);
+  const status = remaining === 0 ? 'solde' : paid > 0 ? 'partiel' : 'impaye';
+  const asOf = asOfDateStr || getTodayStr();
+
+  const rawInstallments =
+    fee?.installments && fee.installments.length > 0
+      ? fee.installments
+      : [{ label: 'Scolarité annuelle', amount: expected, dueDate: `${asOf.slice(0, 4)}-09-15` }];
+
+  let creditPool = paid;
+  let overdueFcfa = 0;
+  let maxDaysOverdue = 0;
+  let nextDueDate: string | null = null;
+  let nextDueLabel: string | null = null;
+  let nextDueAmount = 0;
+
+  const installmentBreakdown: StudentInstallmentBreakdown[] = rawInstallments.map((inst) => {
+    const allocated = Math.min(inst.amount, Math.max(0, creditPool));
+    creditPool = Math.max(0, creditPool - allocated);
+    const instRemaining = Math.max(0, inst.amount - allocated);
+    const settled = instRemaining === 0;
+    const isOverdue = !settled && Boolean(inst.dueDate) && inst.dueDate < asOf;
+    const daysOverdue = isOverdue ? diffDaysYmd(inst.dueDate, asOf) : 0;
+
+    if (isOverdue) {
+      overdueFcfa += instRemaining;
+      if (daysOverdue > maxDaysOverdue) maxDaysOverdue = daysOverdue;
+    }
+    if (!settled && nextDueLabel === null) {
+      nextDueDate = inst.dueDate;
+      nextDueLabel = inst.label;
+      nextDueAmount = instRemaining;
+    }
+
+    return {
+      label: inst.label,
+      dueDate: inst.dueDate,
+      amount: inst.amount,
+      paidForInstallment: allocated,
+      remainingForInstallment: instRemaining,
+      settled,
+      isOverdue,
+      daysOverdue,
+    };
+  });
+
+  // Cap overdueFcfa at remaining balance in case fee installments sum slightly differs from expected
+  if (overdueFcfa > remaining) overdueFcfa = remaining;
+  const recoveryRatePercent =
+    expected > 0 ? Math.min(100, Math.round((paid / expected) * 100)) : 100;
+
+  return {
+    expected,
+    paid,
+    remaining,
+    overdueFcfa,
+    daysOverdue: maxDaysOverdue,
+    recoveryRatePercent,
+    status,
+    nextDueDate,
+    nextDueLabel,
+    nextDueAmount,
+    installmentBreakdown,
+  };
+}
+
+function fmtAmountFr(amount: number): string {
+  return `${Math.round(amount).toLocaleString('fr-FR')} FCFA`;
+}
+
+export function normalizePhoneForWhatsapp(phone?: string): string {
+  if (!phone) return '';
+  let digits = phone.replace(/[^\d+]/g, '');
+  if (digits.startsWith('00')) digits = digits.slice(2);
+  if (digits.startsWith('+')) digits = digits.slice(1);
+  return digits;
+}
+
+export function buildWhatsappLaunchUrl(phone: string | undefined, message: string): string | null {
+  const digits = normalizePhoneForWhatsapp(phone);
+  if (!digits) return null;
+  return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+}
+
+export function buildMailtoLaunchUrl(
+  email: string | undefined,
+  subject: string,
+  body: string
+): string | null {
+  const clean = (email || '').trim();
+  if (!clean) return null;
+  return `mailto:${encodeURIComponent(clean)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+}
+
+export function buildReminderMessageText(params: {
+  student: Student;
+  parent?: ParentTutor;
+  profile: StudentRecoveryProfile;
+  schoolName: string;
+  step: number;
+  delayDays?: number;
+}): string {
+  const { student, parent, profile, schoolName, step, delayDays = 3 } = params;
+  const parentName = parent?.fullName || 'Parent / Tuteur';
+  const studentName = `${student.firstName} ${student.lastName}`;
+  const tranche = profile.nextDueLabel || 'tranche de scolarité';
+  const overdueStr = fmtAmountFr(profile.overdueFcfa > 0 ? profile.overdueFcfa : profile.remaining);
+  const remainingStr = fmtAmountFr(profile.remaining);
+
+  if (step <= 1) {
+    return (
+      `Bonjour ${parentName}, ${schoolName} vous informe d’un retard de paiement de ${overdueStr} ` +
+      `concernant la scolarité de ${studentName} (${student.cardId}, ${tranche}). ` +
+      `Solde annuel restant : ${remainingStr}. Merci de procéder au règlement à la Caisse ou de solliciter un moratoire sous ${delayDays} jours.`
+    );
+  }
+  if (step === 2) {
+    return (
+      `Relance J+${delayDays} · Bonjour ${parentName}, suite à notre premier message resté sans régularisation, ` +
+      `le dossier de ${studentName} (${student.cardId}) présente toujours un montant échu de ${overdueStr} ` +
+      `(solde restant : ${remainingStr}). Merci de passer à la Caisse de ${schoolName} dans les plus brefs délais.`
+    );
+  }
+  return (
+    `Dernier rappel avant mise en demeure · Bonjour ${parentName}, malgré nos précédents avis, ` +
+    `le retard de scolarité de ${studentName} (${student.cardId}) s’élève à ${overdueStr} ` +
+    `(solde restant : ${remainingStr}). Nous vous prions de régulariser ou de contacter la Scolarité de ${schoolName} immédiatement.`
+  );
+}
+
+export function evaluateStudentAutoFollowUp(
+  db: Pick<SchoolDatabase, 'feeGrid' | 'payments' | 'collectionReminders' | 'settings'>,
+  student: Student,
+  asOfIso?: string
+): StudentFollowUpPlan {
+  const nowMs = asOfIso ? new Date(asOfIso).getTime() : Date.now();
+  const todayStr = (asOfIso || new Date(nowMs).toISOString()).slice(0, 10);
+  const auto = db.settings.collectionAutomation || getDefaultCollectionAutomation();
+  const delayDays = Math.max(1, Number(auto.followUpDelayDays) || 3);
+  const maxSteps = Math.max(1, Number(auto.maxAutoReminders) || 3);
+
+  const profile = computeStudentRecoveryProfile(db, student, todayStr);
+  if (profile.overdueFcfa <= 0 || profile.remaining <= 0) {
+    return {
+      actionNeeded: 'none',
+      nextStep: 0,
+      nextStatus: 'resolu',
+      daysSinceLastReminder: null,
+      nextFollowUpDueAt: null,
+      reasonLabel: profile.remaining === 0 ? 'Scolarité soldée' : 'Aucune tranche échue',
+    };
+  }
+
+  const studentReminders = (db.collectionReminders || [])
+    .filter((r) => r.studentId === student.id)
+    .sort((a, b) => new Date(b.sentAt).getTime() - new Date(a.sentAt).getTime());
+
+  const latest = studentReminders[0];
+  if (!latest || latest.status === 'resolu') {
+    return {
+      actionNeeded: 'initial_alert',
+      nextStep: 1,
+      nextStatus: 'relance_1',
+      daysSinceLastReminder: null,
+      nextFollowUpDueAt: new Date(nowMs).toISOString(),
+      reasonLabel: `Retard constaté (${fmtAmountFr(profile.overdueFcfa)}) — 1er avis WhatsApp/Email à envoyer`,
+    };
+  }
+
+  if (latest.status === 'moratoire') {
+    if (latest.promisedDate && latest.promisedDate >= todayStr) {
+      return {
+        actionNeeded: 'moratoire_paused',
+        nextStep: (latest.sequenceStep || 1) + 1,
+        nextStatus: 'relance_2',
+        daysSinceLastReminder: Math.max(0, Math.floor((nowMs - new Date(latest.sentAt).getTime()) / 86400000)),
+        nextFollowUpDueAt: latest.promisedDate,
+        reasonLabel: `Moratoire actif jusqu’au ${latest.promisedDate}`,
+      };
+    }
+    const nextStep = (latest.sequenceStep || 1) + 1;
+    return {
+      actionNeeded: 'followup_j3',
+      nextStep,
+      nextStatus: nextStep >= 3 ? 'mise_en_demeure' : 'relance_2',
+      daysSinceLastReminder: Math.max(0, Math.floor((nowMs - new Date(latest.sentAt).getTime()) / 86400000)),
+      nextFollowUpDueAt: new Date(nowMs).toISOString(),
+      reasonLabel: 'Moratoire expiré sans règlement — relance immédiate',
+    };
+  }
+
+  const elapsedMs = nowMs - new Date(latest.sentAt).getTime();
+  const elapsedDays = Math.max(0, Math.floor(elapsedMs / 86400000));
+  const currentStep = latest.sequenceStep || (latest.status === 'relance_1' ? 1 : latest.status === 'relance_2' ? 2 : 3);
+  const dueAtIso = new Date(new Date(latest.sentAt).getTime() + delayDays * 86400000).toISOString();
+
+  if (currentStep >= maxSteps) {
+    return {
+      actionNeeded: 'none',
+      nextStep: currentStep,
+      nextStatus: 'mise_en_demeure',
+      daysSinceLastReminder: elapsedDays,
+      nextFollowUpDueAt: null,
+      reasonLabel: `Palier maximum atteint (${maxSteps} relances envoyées)`,
+    };
+  }
+
+  if (elapsedDays >= delayDays) {
+    const nextStep = currentStep + 1;
+    return {
+      actionNeeded: 'followup_j3',
+      nextStep,
+      nextStatus: nextStep >= 3 ? 'mise_en_demeure' : 'relance_2',
+      daysSinceLastReminder: elapsedDays,
+      nextFollowUpDueAt: dueAtIso,
+      reasonLabel: `Sans règlement depuis ${elapsedDays} j (≥ ${delayDays} j) — Relance J+${delayDays} à envoyer`,
+    };
+  }
+
+  return {
+    actionNeeded: 'none',
+    nextStep: currentStep + 1,
+    nextStatus: currentStep + 1 >= 3 ? 'mise_en_demeure' : 'relance_2',
+    daysSinceLastReminder: elapsedDays,
+    nextFollowUpDueAt: dueAtIso,
+    reasonLabel: `Relance J+${delayDays} programmée le ${dueAtIso.slice(0, 10)}`,
+  };
+}
+
+export function runAutomaticOverdueNotifications(
+  db: SchoolDatabase,
+  actor: { id: string; fullName: string; role: UserRole },
+  options?: { studentIds?: string[]; nowIso?: string }
+): {
+  dispatchedCount: number;
+  reminders: CollectionReminder[];
+  whatsappLinks: Array<{ studentId: string; studentName: string; phone: string; url: string }>;
+  emailLinks: Array<{ studentId: string; studentName: string; email: string; url: string }>;
+} {
+  ensureRecouvrementData(db);
+  const nowIso = options?.nowIso || new Date().toISOString();
+  const nowMs = new Date(nowIso).getTime();
+  const auto = db.settings.collectionAutomation || getDefaultCollectionAutomation();
+  const delayDays = Math.max(1, Number(auto.followUpDelayDays) || 3);
+  const targetSet = options?.studentIds ? new Set(options.studentIds) : null;
+
+  const created: CollectionReminder[] = [];
+  const whatsappLinks: Array<{ studentId: string; studentName: string; phone: string; url: string }> = [];
+  const emailLinks: Array<{ studentId: string; studentName: string; email: string; url: string }> = [];
+
+  const activeStudents = db.students.filter(
+    (s) => s.status !== 'archive' && (!targetSet || targetSet.has(s.id))
+  );
+
+  for (const student of activeStudents) {
+    const plan = evaluateStudentAutoFollowUp(db, student, nowIso);
+    if (plan.actionNeeded !== 'initial_alert' && plan.actionNeeded !== 'followup_j3') {
+      continue;
+    }
+
+    const parent = db.parents.find((p) => p.id === student.parentId);
+    const profile = computeStudentRecoveryProfile(db, student, nowIso.slice(0, 10));
+    const messageBody = buildReminderMessageText({
+      student,
+      parent,
+      profile,
+      schoolName: db.settings.schoolName,
+      step: plan.nextStep,
+      delayDays,
+    });
+    const subject = `${db.settings.schoolName} · ${
+      plan.actionNeeded === 'initial_alert' ? 'Avis de retard de scolarité' : `Relance J+${delayDays} scolarité`
+    } — ${student.firstName} ${student.lastName}`;
+    const nextFollowUpAt = new Date(nowMs + delayDays * 86400000).toISOString();
+
+    const channelsToSend: Array<{ channel: ReminderChannel; contact: string }> = [];
+    const phone = (parent?.whatsappPhone || parent?.phone || '').trim();
+    const email = (parent?.email || '').trim();
+
+    if ((auto.primaryChannel === 'whatsapp' || auto.primaryChannel === 'whatsapp_et_email') && phone) {
+      channelsToSend.push({ channel: 'SMS / WhatsApp', contact: phone });
+      const wa = buildWhatsappLaunchUrl(phone, messageBody);
+      if (wa) {
+        whatsappLinks.push({
+          studentId: student.id,
+          studentName: `${student.lastName} ${student.firstName}`,
+          phone,
+          url: wa,
+        });
+      }
+    }
+    if ((auto.primaryChannel === 'email' || auto.primaryChannel === 'whatsapp_et_email') && email) {
+      channelsToSend.push({ channel: 'Email', contact: email });
+      const ml = buildMailtoLaunchUrl(email, subject, messageBody);
+      if (ml) {
+        emailLinks.push({
+          studentId: student.id,
+          studentName: `${student.lastName} ${student.firstName}`,
+          email,
+          url: ml,
+        });
+      }
+    }
+    if (channelsToSend.length === 0) {
+      channelsToSend.push({
+        channel: auto.primaryChannel === 'email' ? 'Email' : 'SMS / WhatsApp',
+        contact: phone || email || 'Contact non renseigné',
+      });
+    }
+
+    for (let i = 0; i < channelsToSend.length; i++) {
+      const target = channelsToSend[i];
+      const rem: CollectionReminder = {
+        id: `rem-auto-${nowMs}-${student.id}-${i}`,
+        studentId: student.id,
+        parentId: student.parentId,
+        channel: target.channel,
+        status: plan.nextStatus,
+        amountDueFcfa: profile.remaining,
+        overdueFcfa: profile.overdueFcfa,
+        promisedDate: null,
+        notes:
+          plan.actionNeeded === 'initial_alert'
+            ? `Envoi automatique (retard constaté) via ${target.channel} — Prochaine relance prévue à J+${delayDays}.`
+            : `Relance automatique J+${delayDays} envoyée via ${target.channel} après ${plan.daysSinceLastReminder ?? delayDays} j sans paiement.`,
+        sentAt: nowIso,
+        sentBy: actor.fullName,
+        recipientContact: target.contact,
+        messageBody,
+        deliveryState: 'envoye',
+        isAutomatic: true,
+        sequenceStep: plan.nextStep,
+        nextFollowUpAt,
+      };
+      db.collectionReminders = db.collectionReminders || [];
+      db.collectionReminders.unshift(rem);
+      created.push(rem);
+    }
+
+    addAuditLog(
+      db,
+      actor,
+      plan.actionNeeded === 'initial_alert'
+        ? 'Avis automatique retard (WhatsApp/Email)'
+        : `Relance automatique J+${delayDays}`,
+      'Recouvrement',
+      student.cardId,
+      `${student.firstName} ${student.lastName} (${parent?.fullName || 'Parent'}) · Canaux : ${channelsToSend.map((c) => c.channel).join(' + ')} · Échu : ${fmtAmountFr(profile.overdueFcfa)}.`
+    );
+  }
+
+  auto.lastAutoRunAt = nowIso;
+  db.settings.collectionAutomation = auto;
+
+  return {
+    dispatchedCount: created.length,
+    reminders: created,
+    whatsappLinks,
+    emailLinks,
+  };
 }
 
 export function computeMentionFromScore(db: SchoolDatabase, score: number): string {
@@ -1772,7 +2387,11 @@ export function recalculateClassBulletins(
     let coeffSum = 0;
     for (const sub of classSubjects) {
       const grade = db.grades.find(
-        (g) => g.studentId === stu.id && g.subjectId === sub.id && g.periodId === periodId
+        (g) =>
+          g.studentId === stu.id &&
+          g.subjectId === sub.id &&
+          g.periodId === periodId &&
+          (!g.validationStatus || g.validationStatus === 'valide')
       );
       if (grade) {
         weightedSum += grade.average * sub.coefficient;
@@ -1866,12 +2485,37 @@ export function computeDashboardSummary(db: SchoolDatabase): DashboardSummary {
   let totalExpectedFcfa = 0;
   let totalCollectedFcfa = 0;
   let unpaidStudentsCount = 0;
+  let totalOverdueFcfa = 0;
+  let overdueStudentsCount = 0;
+  const unpaidStudentIds = new Set<string>();
 
   for (const stu of activeStudents) {
-    const bal = computeStudentBalance(db, stu);
-    totalExpectedFcfa += bal.expected;
-    totalCollectedFcfa += bal.paid;
-    if (bal.remaining > 0) unpaidStudentsCount++;
+    const prof = computeStudentRecoveryProfile(db, stu);
+    totalExpectedFcfa += prof.expected;
+    totalCollectedFcfa += prof.paid;
+    if (prof.remaining > 0) {
+      unpaidStudentsCount++;
+      unpaidStudentIds.add(stu.id);
+    }
+    if (prof.overdueFcfa > 0) {
+      totalOverdueFcfa += prof.overdueFcfa;
+      overdueStudentsCount++;
+    }
+  }
+
+  const reminders = db.collectionReminders || [];
+  const latestReminderByStudent = new Map<string, CollectionReminder>();
+  for (const r of reminders) {
+    const prev = latestReminderByStudent.get(r.studentId);
+    if (!prev || new Date(r.sentAt).getTime() >= new Date(prev.sentAt).getTime()) {
+      latestReminderByStudent.set(r.studentId, r);
+    }
+  }
+  let activeMoratoiresCount = 0;
+  for (const stuId of unpaidStudentIds) {
+    if (latestReminderByStudent.get(stuId)?.status === 'moratoire') {
+      activeMoratoiresCount++;
+    }
   }
 
   const today = getTodayStr();
@@ -1914,6 +2558,14 @@ export function computeDashboardSummary(db: SchoolDatabase): DashboardSummary {
     0
   );
 
+  let pendingFollowUpsCount = 0;
+  for (const stu of activeStudents) {
+    const plan = evaluateStudentAutoFollowUp(db, stu);
+    if (plan.actionNeeded === 'initial_alert' || plan.actionNeeded === 'followup_j3') {
+      pendingFollowUpsCount++;
+    }
+  }
+
   return {
     totalStudents: activeStudents.length,
     activeCards: activeStudents.filter((s) => s.cardStatus === 'active').length,
@@ -1931,6 +2583,11 @@ export function computeDashboardSummary(db: SchoolDatabase): DashboardSummary {
     bulletinsToDeliverCount,
     activeTeachersCount: activeTeachers.length,
     monthlyPayrollFcfa,
+    pendingGradesCount: (db.grades || []).filter((g) => g.validationStatus === 'en_attente').length,
+    totalOverdueFcfa,
+    overdueStudentsCount,
+    activeMoratoiresCount,
+    pendingFollowUpsCount,
   };
 }
 
@@ -2145,8 +2802,13 @@ export function sanitizeDbForClient(db: SchoolDatabase, actor: ActorContext | nu
       teacherPayslips: [],
       paymentNotifications: [],
       payments: db.payments.filter((p) => myStudentIds.has(p.studentId)),
+      collectionReminders: [],
       attendanceLogs: db.attendanceLogs.filter((a) => myStudentIds.has(a.studentId)),
-      grades: db.grades.filter((g) => myStudentIds.has(g.studentId)),
+      grades: db.grades.filter(
+        (g) =>
+          myStudentIds.has(g.studentId) &&
+          (!g.validationStatus || g.validationStatus === 'valide')
+      ),
       bulletins: db.bulletins.filter(
         (b) => myStudentIds.has(b.studentId) && b.deliveryStatus !== 'a_editer'
       ),
@@ -2171,6 +2833,7 @@ export function sanitizeDbForClient(db: SchoolDatabase, actor: ActorContext | nu
     teacherPayslips: db.teacherPayslips || [],
     paymentNotifications: db.paymentNotifications,
     payments: db.payments,
+    collectionReminders: db.collectionReminders || [],
     attendanceLogs: db.attendanceLogs,
     grades: db.grades,
     bulletins: db.bulletins,

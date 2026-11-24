@@ -4,6 +4,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { downloadCardPagesAsPdf, downloadElementAsPdf } from '../utils/pdf';
 import type {
   Bulletin,
+  CollectionReminder,
   EvaluationPeriod,
   Grade,
   ParentTutor,
@@ -11,6 +12,7 @@ import type {
   SchoolClass,
   SchoolSettings,
   Student,
+  StudentRecoveryProfile,
   Subject,
   Teacher,
   TeacherPayslip,
@@ -606,19 +608,22 @@ export const BulletinModal: React.FC<{
   settings: SchoolSettings;
   onClose: () => void;
 }> = ({ bulletin, student, schoolClass, period, subjects, grades, settings, onClose }) => {
+  const validatedGrades = grades.filter(
+    (gr) => !gr.validationStatus || gr.validationStatus === 'valide'
+  );
   const classSubjects = subjects.filter(
     (sub) => sub.cycle === student.cycle && sub.program === student.program
   );
 
   const totalCoeff = classSubjects.reduce((acc, s) => {
-    const g = grades.find(
+    const g = validatedGrades.find(
       (gr) => gr.studentId === student.id && gr.subjectId === s.id && gr.periodId === bulletin.periodId
     );
     return g ? acc + s.coefficient : acc;
   }, 0);
 
   const totalWeighted = classSubjects.reduce((acc, s) => {
-    const g = grades.find(
+    const g = validatedGrades.find(
       (gr) => gr.studentId === student.id && gr.subjectId === s.id && gr.periodId === bulletin.periodId
     );
     return g ? acc + g.average * s.coefficient : acc;
@@ -775,7 +780,7 @@ export const BulletinModal: React.FC<{
               </thead>
               <tbody className="divide-y divide-slate-200">
                 {classSubjects.map((sub) => {
-                  const grade = grades.find(
+                  const grade = validatedGrades.find(
                     (g) =>
                       g.studentId === student.id &&
                       g.subjectId === sub.id &&
@@ -1187,6 +1192,279 @@ export const PayslipModal: React.FC<{
                   {payslip.paidAt
                     ? `Payé le ${formatDateTimeFr(payslip.paidAt)} par ${payslip.paidBy}`
                     : `Établi le ${formatDateFr(payslip.createdAt)} par ${payslip.createdBy}`}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export const ReminderNoticeModal: React.FC<{
+  student: Student;
+  schoolClass?: SchoolClass;
+  parent?: ParentTutor;
+  profile: StudentRecoveryProfile;
+  latestReminder?: CollectionReminder;
+  settings: SchoolSettings;
+  onClose: () => void;
+}> = ({ student, schoolClass, parent, profile, latestReminder, settings, onClose }) => {
+  const docRef = React.useRef<HTMLDivElement>(null);
+  const [downloading, setDownloading] = React.useState(false);
+  const [downloadError, setDownloadError] = React.useState<string | null>(null);
+
+  const handleDownload = async () => {
+    if (!docRef.current || downloading) return;
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      await downloadElementAsPdf(
+        docRef.current,
+        `Avis-Recouvrement-${student.cardId}-${student.lastName}.pdf`,
+        { maxWidthMm: 190 }
+      );
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'Erreur lors du téléchargement.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  const todayDisplay = formatDateFr(new Date().toISOString());
+  const isOverdue = profile.overdueFcfa > 0;
+  const isMoratoire = latestReminder?.status === 'moratoire' && profile.remaining > 0;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      <div className="bg-white border border-slate-200 rounded-xl max-w-2xl w-full max-h-[94vh] flex flex-col shadow-lg overflow-hidden print-container my-auto">
+        <div className="no-print flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-200 bg-slate-50 shrink-0">
+          <div className="min-w-0">
+            <h3 className="text-sm sm:text-base font-semibold text-slate-900 truncate">
+              Avis de recouvrement · {student.lastName} {student.firstName}
+            </h3>
+            <p className="text-xs text-slate-500">Situation financière & échéancier des tranches</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={downloading}
+              onClick={handleDownload}
+              className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-2 text-xs font-semibold text-[#0B1933] bg-[#E5A923] hover:bg-[#d89b18] disabled:opacity-60 rounded-lg transition-colors whitespace-nowrap shrink-0"
+            >
+              <Download className="w-4 h-4" />
+              {downloading ? 'Téléchargement...' : 'Télécharger PDF'}
+            </button>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-2 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
+            >
+              <Printer className="w-4 h-4" />
+              Imprimer
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Fermer"
+              className="p-2 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-200/60 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {downloadError && (
+          <div className="no-print px-4 sm:px-6 py-2 bg-red-50 border-b border-red-200 text-xs text-red-700 shrink-0">
+            {downloadError}
+          </div>
+        )}
+
+        <div className="overflow-y-auto flex-1">
+          <div ref={docRef} className="p-4 sm:p-8 space-y-5 bg-white">
+            {/* Institutional Header */}
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 border-b-2 border-[#0B1933] pb-4">
+              <div className="flex items-center gap-3">
+                <img
+                  src={SCHOOL_EMBLEM_URL}
+                  alt="Logo JEGAMA SCHOOL"
+                  referrerPolicy="no-referrer"
+                  className="w-12 h-12 rounded object-contain border border-slate-200 p-1 shrink-0"
+                />
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-[#0B1933]">{settings.schoolName}</h2>
+                  <p className="text-xs text-slate-600">
+                    {settings.address}, {settings.city} · {settings.country}
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Direction Financière · Caisse & Recouvrement
+                  </p>
+                </div>
+              </div>
+              <div className="sm:text-right">
+                <div className="text-xs font-bold uppercase tracking-wider text-[#0B1933]">
+                  {isOverdue ? 'Avis de relance scolarité' : 'Relevé de situation scolaire'}
+                </div>
+                <div className="text-xs font-mono text-slate-600 mt-1">
+                  Année {settings.currentAcademicYear}
+                </div>
+                <div className="text-xs text-slate-500 mt-0.5">Édité le {todayDisplay}</div>
+              </div>
+            </div>
+
+            {/* Parent & Student Box */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs bg-slate-50 p-4 rounded-lg border border-slate-200">
+              <div>
+                <div className="text-slate-500 uppercase tracking-wide text-[11px]">Élève concerné(e)</div>
+                <div className="font-bold text-slate-900 text-sm mt-0.5">
+                  {student.lastName} {student.firstName}
+                </div>
+                <div className="font-mono text-slate-600 mt-0.5">
+                  Carte {student.cardId} · {schoolClass?.name || student.cycle} ({student.program})
+                </div>
+              </div>
+              <div>
+                <div className="text-slate-500 uppercase tracking-wide text-[11px]">Parent / Tuteur légal</div>
+                <div className="font-bold text-slate-900 text-sm mt-0.5">
+                  {parent?.fullName || '—'}
+                </div>
+                <div className="font-mono text-slate-600 mt-0.5">{parent?.phone || '—'}</div>
+                <div className="text-slate-500 mt-0.5">{parent?.address || ''}</div>
+              </div>
+            </div>
+
+            {/* Formal Notice Message */}
+            <div className="text-xs text-slate-700 leading-relaxed space-y-2">
+              <p>Cher(e) {parent?.fullName || 'Parent / Tuteur'},</p>
+              {profile.remaining === 0 ? (
+                <p>
+                  Nous confirmons que la scolarité annuelle de votre enfant{' '}
+                  <strong>
+                    {student.firstName} {student.lastName}
+                  </strong>{' '}
+                  est intégralement soldée pour l’année scolaire {settings.currentAcademicYear}.
+                </p>
+              ) : isOverdue ? (
+                <p>
+                  Sauf erreur ou omission de notre part, le dossier financier de votre enfant{' '}
+                  <strong>
+                    {student.firstName} {student.lastName}
+                  </strong>{' '}
+                  présente un montant échu non régularisé de{' '}
+                  <strong className="font-mono text-red-700">{formatFcfa(profile.overdueFcfa)}</strong>{' '}
+                  (retard de {profile.daysOverdue} jour{profile.daysOverdue > 1 ? 's' : ''}) sur un
+                  solde annuel restant de{' '}
+                  <strong className="font-mono text-slate-900">{formatFcfa(profile.remaining)}</strong>.
+                  Nous vous prions de bien vouloir vous rapprocher de la Caisse dans les plus brefs délais.
+                </p>
+              ) : (
+                <p>
+                  Nous vous transmettons le relevé actualisé des frais de scolarité de{' '}
+                  <strong>
+                    {student.firstName} {student.lastName}
+                  </strong>
+                  . Les tranches échues à ce jour sont à jour ; le solde restant de{' '}
+                  <strong className="font-mono text-slate-900">{formatFcfa(profile.remaining)}</strong>{' '}
+                  reste exigible selon le calendrier ci-dessous.
+                </p>
+              )}
+              {isMoratoire && latestReminder?.promisedDate && (
+                <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-950 font-medium">
+                  Moratoire enregistré le {formatDateFr(latestReminder.sentAt)} : engagement de
+                  règlement fixé au{' '}
+                  <span className="font-mono font-bold">
+                    {formatDateFr(latestReminder.promisedDate)}
+                  </span>
+                  . {latestReminder.notes}
+                </div>
+              )}
+            </div>
+
+            {/* Installment Table */}
+            <div className="overflow-x-auto border border-slate-200 rounded-lg">
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-left text-slate-600">
+                    <th className="py-2.5 px-3 font-semibold">Tranche</th>
+                    <th className="py-2.5 px-3 font-semibold">Échéance</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">Attendu</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">Réglé</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">Reste</th>
+                    <th className="py-2.5 px-3 font-semibold text-right">Statut</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {profile.installmentBreakdown.map((inst) => (
+                    <tr key={inst.label}>
+                      <td className="py-2.5 px-3 font-medium text-slate-900">{inst.label}</td>
+                      <td className="py-2.5 px-3 font-mono tabular-nums text-slate-600">
+                        {formatDateFr(inst.dueDate)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums text-slate-800">
+                        {formatFcfa(inst.amount)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums text-emerald-700">
+                        {formatFcfa(inst.paidForInstallment)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono tabular-nums font-semibold text-slate-900">
+                        {formatFcfa(inst.remainingForInstallment)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-semibold">
+                        {inst.settled ? (
+                          <span className="text-emerald-700">Soldée</span>
+                        ) : inst.isOverdue ? (
+                          <span className="text-red-700">Échue (+{inst.daysOverdue}j)</span>
+                        ) : (
+                          <span className="text-slate-600">À échoir</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Summary KPI Bar */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-[#0B1933] text-white rounded-xl p-4">
+              <div>
+                <div className="text-[11px] text-slate-300">Total annuel</div>
+                <div className="font-mono font-bold text-sm tabular-nums mt-0.5">
+                  {formatFcfa(profile.expected)}
+                </div>
+              </div>
+              <div>
+                <div className="text-[11px] text-slate-300">Déjà encaissé</div>
+                <div className="font-mono font-bold text-sm text-emerald-300 tabular-nums mt-0.5">
+                  {formatFcfa(profile.paid)}
+                </div>
+              </div>
+              <div>
+                <div className="text-[11px] text-slate-300">Échu en retard</div>
+                <div className="font-mono font-bold text-sm text-[#E5A923] tabular-nums mt-0.5">
+                  {formatFcfa(profile.overdueFcfa)}
+                </div>
+              </div>
+              <div>
+                <div className="text-[11px] text-slate-300">Reste à payer</div>
+                <div className="font-mono font-bold text-sm text-white tabular-nums mt-0.5">
+                  {formatFcfa(profile.remaining)}
+                </div>
+              </div>
+            </div>
+
+            {/* Signatures */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 text-xs text-slate-600">
+              <div className="border border-slate-200 rounded-lg p-3.5 min-h-[72px] flex flex-col justify-between">
+                <div className="font-semibold text-slate-800">Visa du Parent / Tuteur</div>
+                <div className="text-[11px] text-slate-400">Date et signature (pour réception)</div>
+              </div>
+              <div className="border border-slate-200 rounded-lg p-3.5 min-h-[72px] flex flex-col justify-between">
+                <div className="font-semibold text-slate-800">
+                  Service Caisse & Recouvrement · {settings.schoolName}
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  {settings.city}, le {todayDisplay}
                 </div>
               </div>
             </div>

@@ -1,8 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertCircle,
   BookOpen,
   Calculator,
+  Check,
+  CheckCheck,
   CheckCircle2,
+  Clock,
   Download,
   FileSpreadsheet,
   Lock,
@@ -13,9 +17,18 @@ import {
   Trash2,
   Unlock,
   Upload,
+  XCircle,
 } from 'lucide-react';
 import { apiRequest, type AppState, type SessionUser } from '../api';
-import type { Bulletin, MentionThreshold, SchoolCycle, SchoolProgram, Student } from '../types';
+import type {
+  Bulletin,
+  Grade,
+  GradeValidationStatus,
+  MentionThreshold,
+  SchoolCycle,
+  SchoolProgram,
+  Student,
+} from '../types';
 import { downloadGradesExcelTemplate, parseGradesExcelFile } from '../utils/excel';
 import { CYCLES, formatDateFr, formatDateTimeFr, PROGRAMS } from '../utils/format';
 import { BulletinModal, StudentAvatar, StudentCardModal } from './PrintableDocs';
@@ -61,14 +74,30 @@ export const SecretariatView: React.FC<{
   initialTab?: SecretariatTab;
   onRefresh: () => Promise<void>;
 }> = ({ state, session, initialTab, onRefresh }) => {
-  const canModify = session.role === 'secretariat' || session.role === 'admin';
-  const isReadOnly = session.role === 'direction' || !canModify;
+  const canRecordGrades =
+    session.role === 'enseignant' ||
+    session.role === 'secretariat' ||
+    session.role === 'admin';
+  const canValidateGrades =
+    session.role === 'scolarite' || session.role === 'admin';
+  const canManageAcademic =
+    session.role === 'secretariat' || session.role === 'admin';
+  const isReadOnly = session.role === 'direction' || !canManageAcademic;
+  const notesReadOnly = !canRecordGrades;
+  const showOnlyNotesTab =
+    session.role === 'enseignant' || session.role === 'scolarite';
 
-  const [activeTab, setActiveTab] = useState<SecretariatTab>(initialTab || 'notes');
+  const [activeTab, setActiveTab] = useState<SecretariatTab>(
+    showOnlyNotesTab ? 'notes' : initialTab || 'notes'
+  );
 
   useEffect(() => {
-    if (initialTab) setActiveTab(initialTab);
-  }, [initialTab]);
+    if (showOnlyNotesTab) {
+      setActiveTab('notes');
+    } else if (initialTab) {
+      setActiveTab(initialTab);
+    }
+  }, [initialTab, showOnlyNotesTab]);
 
   const [selectedPeriodId, setSelectedPeriodId] = useState(
     () => state.periods.find((p) => p.status === 'ouvert')?.id || state.periods[0]?.id || ''
@@ -81,6 +110,14 @@ export const SecretariatView: React.FC<{
   const [entryMode, setEntryMode] = useState<GradeEntryMode>('classe');
   const [evalSlotCount, setEvalSlotCount] = useState(2);
   const [batchOverrideReason, setBatchOverrideReason] = useState('');
+  const [validationFilter, setValidationFilter] = useState<
+    'en_attente' | 'rejete' | 'valide' | 'all'
+  >('en_attente');
+  const [rejectTarget, setRejectTarget] = useState<{
+    gradeIds: string[];
+    label: string;
+  } | null>(null);
+  const [rejectReasonInput, setRejectReasonInput] = useState('');
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'ok' | 'err'; text: string } | null>(null);
   const excelInputRef = useRef<HTMLInputElement>(null);
@@ -282,7 +319,10 @@ export const SecretariatView: React.FC<{
         session
       );
       await onRefresh();
-      setFeedback({ type: 'ok', text: 'Note enregistrée, moyenne et classement recalculés.' });
+      setFeedback({
+        type: 'ok',
+        text: 'Note enregistrée — en attente de validation par la Scolarité.',
+      });
     } catch (err) {
       setFeedback({
         type: 'err',
@@ -397,7 +437,7 @@ export const SecretariatView: React.FC<{
       await onRefresh();
       setFeedback({
         type: 'ok',
-        text: `${res.savedCount} fiche(s) de notes enregistrée(s) et bulletins mis à jour.`,
+        text: `${res.savedCount} fiche(s) enregistrée(s) — en attente de validation par la Scolarité.`,
       });
     } catch (err) {
       setFeedback({
@@ -462,6 +502,158 @@ export const SecretariatView: React.FC<{
       setBusy(false);
     }
   };
+
+  const handleValidateSingle = async (
+    gradeId: string,
+    decision: 'valide' | 'rejete',
+    reason?: string
+  ) => {
+    setBusy(true);
+    setFeedback(null);
+    try {
+      await apiRequest(
+        `/api/grades/${gradeId}/validate`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ decision, reason }),
+        },
+        session
+      );
+      await onRefresh();
+      setRejectTarget(null);
+      setRejectReasonInput('');
+      setFeedback({
+        type: 'ok',
+        text:
+          decision === 'valide'
+            ? 'Note validée par la Scolarité. Les moyennes, rangs et bulletins ont été mis à jour.'
+            : 'Note rejetée avec motif. L’enseignant peut maintenant la corriger et la soumettre à nouveau.',
+      });
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Erreur lors de la validation.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleValidateBatch = async (
+    gradeIds: string[],
+    decision: 'valide' | 'rejete',
+    reason?: string
+  ) => {
+    if (gradeIds.length === 0) return;
+    setBusy(true);
+    setFeedback(null);
+    try {
+      const res = await apiRequest<{ updatedCount: number }>(
+        '/api/grades/validate-batch',
+        {
+          method: 'POST',
+          body: JSON.stringify({ gradeIds, decision, reason }),
+        },
+        session
+      );
+      await onRefresh();
+      setRejectTarget(null);
+      setRejectReasonInput('');
+      setFeedback({
+        type: 'ok',
+        text:
+          decision === 'valide'
+            ? `${res.updatedCount} fiche(s) validée(s) par la Scolarité et intégrée(s) aux bulletins.`
+            : `${res.updatedCount} fiche(s) rejetée(s) avec motif.`,
+      });
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Erreur lors de la validation groupée.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSubmitRejectionModal = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!rejectTarget) return;
+    const reason = rejectReasonInput.trim();
+    if (!reason) {
+      setFeedback({ type: 'err', text: 'Veuillez saisir un motif de rejet.' });
+      return;
+    }
+    if (rejectTarget.gradeIds.length === 1) {
+      await handleValidateSingle(rejectTarget.gradeIds[0], 'rejete', reason);
+    } else {
+      await handleValidateBatch(rejectTarget.gradeIds, 'rejete', reason);
+    }
+  };
+
+  const getGradeStatus = (grade?: Grade): GradeValidationStatus => {
+    return grade?.validationStatus || 'valide';
+  };
+
+  const renderValidationBadge = (grade?: Grade) => {
+    if (!grade) return null;
+    const status = getGradeStatus(grade);
+    if (status === 'en_attente') {
+      return (
+        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-semibold rounded border border-amber-300 bg-amber-50 text-amber-900 whitespace-nowrap">
+          <Clock className="w-3 h-3 shrink-0" />
+          En attente Scolarité
+        </span>
+      );
+    }
+    if (status === 'rejete') {
+      return (
+        <span
+          title={grade.rejectionReason || undefined}
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-semibold rounded border border-red-300 bg-red-50 text-red-800 whitespace-nowrap"
+        >
+          <XCircle className="w-3 h-3 shrink-0" />
+          Rejeté Scolarité
+        </span>
+      );
+    }
+    return (
+      <span
+        title={grade.validatedBy ? `Validé par ${grade.validatedBy}` : undefined}
+        className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[11px] font-semibold rounded border border-emerald-300 bg-emerald-50 text-emerald-800 whitespace-nowrap"
+      >
+        <Check className="w-3 h-3 shrink-0" />
+        Validé Scolarité
+      </span>
+    );
+  };
+
+  const pendingGradesAll = useMemo(() => {
+    return state.grades
+      .filter((g) => g.validationStatus === 'en_attente')
+      .sort((a, b) => (b.submittedAt || b.updatedAt).localeCompare(a.submittedAt || a.updatedAt));
+  }, [state.grades]);
+
+  const rejectedGradesAll = useMemo(() => {
+    return state.grades
+      .filter((g) => g.validationStatus === 'rejete')
+      .sort((a, b) => (b.validatedAt || b.updatedAt).localeCompare(a.validatedAt || a.updatedAt));
+  }, [state.grades]);
+
+  const validatedGradesAll = useMemo(() => {
+    return state.grades
+      .filter((g) => !g.validationStatus || g.validationStatus === 'valide')
+      .sort((a, b) => (b.validatedAt || b.updatedAt).localeCompare(a.validatedAt || a.updatedAt));
+  }, [state.grades]);
+
+  const queueGrades = useMemo(() => {
+    if (validationFilter === 'en_attente') return pendingGradesAll;
+    if (validationFilter === 'rejete') return rejectedGradesAll;
+    if (validationFilter === 'valide') return validatedGradesAll;
+    return [...state.grades].sort((a, b) =>
+      (b.submittedAt || b.updatedAt).localeCompare(a.submittedAt || a.updatedAt)
+    );
+  }, [validationFilter, pendingGradesAll, rejectedGradesAll, validatedGradesAll, state.grades]);
 
   const handleAutoFillAppreciations = () => {
     const pairs: Array<{ studentId: string; subjectId: string }> =
@@ -728,36 +920,46 @@ export const SecretariatView: React.FC<{
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="min-w-0">
           <h1 className="font-display text-xl sm:text-2xl font-bold text-slate-900">
-            Secrétariat académique
+            {session.role === 'enseignant'
+              ? 'Saisie des notes · Espace Enseignant'
+              : session.role === 'scolarite'
+                ? 'Validation des notes · Scolarité'
+                : 'Secrétariat académique'}
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-0.5">
-            Constitution des classes, matières, coefficients, saisie des notes (/20) et livraison des bulletins.
+            {session.role === 'enseignant'
+              ? 'Enregistrez les notes (/20) et appréciations ; la Scolarité valide chaque enregistrement avant publication.'
+              : session.role === 'scolarite'
+                ? 'Contrôlez, validez ou rejetez avec motif les notes enregistrées par les enseignants avant calcul des bulletins.'
+                : 'Constitution des classes, matières, suivi des notes soumises pour validation Scolarité et livraison des bulletins.'}
           </p>
         </div>
 
-        <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg self-start w-full sm:w-auto overflow-x-auto max-w-full">
-          {(
-            [
-              { id: 'notes', label: 'Notes & Moyennes' },
-              { id: 'bulletins', label: 'Bulletins & Livraison' },
-              { id: 'classes', label: 'Classes & Matières' },
-              { id: 'periodes', label: 'Périodes' },
-            ] as Array<{ id: SecretariatTab; label: string }>
-          ).map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              onClick={() => setActiveTab(tab.id)}
-              className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
-                activeTab === tab.id
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        {!showOnlyNotesTab && (
+          <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg self-start w-full sm:w-auto overflow-x-auto max-w-full">
+            {(
+              [
+                { id: 'notes', label: 'Notes & Validation' },
+                { id: 'bulletins', label: 'Bulletins & Livraison' },
+                { id: 'classes', label: 'Classes & Matières' },
+                { id: 'periodes', label: 'Périodes' },
+              ] as Array<{ id: SecretariatTab; label: string }>
+            ).map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                  activeTab === tab.id
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {feedback && (
@@ -961,7 +1163,7 @@ export const SecretariatView: React.FC<{
                 )}
               </div>
 
-              {!isReadOnly && (
+              {canRecordGrades && (
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
@@ -1018,7 +1220,9 @@ export const SecretariatView: React.FC<{
                     className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 disabled:opacity-50 rounded-lg whitespace-nowrap"
                   >
                     <Save className="w-3.5 h-3.5" />
-                    Enregistrer toutes les notes
+                    {session.role === 'enseignant'
+                      ? 'Soumettre toutes les notes'
+                      : 'Enregistrer toutes les notes'}
                   </button>
                 </div>
               )}
@@ -1026,6 +1230,292 @@ export const SecretariatView: React.FC<{
           )}
         </div>
       )}
+
+      {/* SCOLARITÉ VALIDATION QUEUE PANEL */}
+      {activeTab === 'notes' &&
+        (canValidateGrades ||
+          pendingGradesAll.length > 0 ||
+          rejectedGradesAll.length > 0 ||
+          validationFilter !== 'en_attente') && (
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-4 sm:px-5 py-3.5 border-b border-slate-200 bg-slate-50/70 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="font-display text-sm sm:text-base font-bold text-slate-900">
+                    File de validation Scolarité
+                  </h2>
+                  <span className="px-2 py-0.5 text-[11px] font-mono font-bold rounded border border-amber-300 bg-amber-50 text-amber-900 tabular-nums">
+                    {pendingGradesAll.length} en attente
+                  </span>
+                  {rejectedGradesAll.length > 0 && (
+                    <span className="px-2 py-0.5 text-[11px] font-mono font-bold rounded border border-red-300 bg-red-50 text-red-800 tabular-nums">
+                      {rejectedGradesAll.length} rejetée(s)
+                    </span>
+                  )}
+                  <span className="px-2 py-0.5 text-[11px] font-mono font-semibold rounded border border-emerald-300 bg-emerald-50 text-emerald-800 tabular-nums">
+                    {validatedGradesAll.length} validée(s)
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Seules les notes validées par la Scolarité entrent dans le calcul des moyennes, rangs, bulletins et de la vue parentale.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg overflow-x-auto max-w-full">
+                  {(
+                    [
+                      { id: 'en_attente', label: `En attente (${pendingGradesAll.length})` },
+                      { id: 'rejete', label: `Rejetées (${rejectedGradesAll.length})` },
+                      { id: 'valide', label: `Validées (${validatedGradesAll.length})` },
+                      { id: 'all', label: `Toutes (${state.grades.length})` },
+                    ] as const
+                  ).map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => setValidationFilter(f.id)}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-md whitespace-nowrap transition-colors ${
+                        validationFilter === f.id
+                          ? 'bg-white text-slate-900 shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                {canValidateGrades && pendingGradesAll.length > 0 && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      handleValidateBatch(
+                        pendingGradesAll.map((g) => g.id),
+                        'valide'
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 rounded-lg whitespace-nowrap"
+                  >
+                    <CheckCheck className="w-3.5 h-3.5" />
+                    Tout valider ({pendingGradesAll.length})
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {queueGrades.length === 0 ? (
+              <div className="px-4 py-6 text-center text-xs text-slate-500">
+                Aucune fiche de notes dans cette catégorie.
+              </div>
+            ) : (
+              <div className="max-h-96 overflow-y-auto">
+                {/* Mobile queue cards */}
+                <div className="md:hidden divide-y divide-slate-100">
+                  {queueGrades.map((g) => {
+                    const stu = state.students.find((s) => s.id === g.studentId);
+                    const cls = state.classes.find((c) => c.id === stu?.classId);
+                    const sub = state.subjects.find((s) => s.id === g.subjectId);
+                    const per = state.periods.find((p) => p.id === g.periodId);
+                    const status = getGradeStatus(g);
+                    return (
+                      <div key={`qmob-${g.id}`} className="p-3.5 space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-slate-900 truncate">
+                              {stu ? `${stu.lastName} ${stu.firstName}` : g.studentId}
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              {cls?.name || stu?.cycle || '—'} · {sub?.name || g.subjectId} ·{' '}
+                              {per?.label || g.periodId}
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="font-mono font-bold text-sm text-blue-950 tabular-nums">
+                              {g.average.toFixed(2)}/20
+                            </div>
+                            <div className="font-mono text-[11px] text-slate-500">
+                              [{g.values.join(' · ')}]
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {renderValidationBadge(g)}
+                            <span className="text-[11px] text-slate-500">
+                              Par {g.submittedBy || g.updatedBy}
+                            </span>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (per) setSelectedPeriodId(per.id);
+                              if (cls) setSelectedClassId(cls.id);
+                              if (sub) setSelectedSubjectId(sub.id);
+                              setEntryMode('classe');
+                            }}
+                            className="text-[11px] font-semibold text-blue-900 underline"
+                          >
+                            Voir en grille
+                          </button>
+                        </div>
+
+                        {g.rejectionReason && (
+                          <div className="p-2 rounded border border-red-200 bg-red-50 text-[11px] text-red-800 flex items-start gap-1.5">
+                            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                            <span>Motif du rejet : {g.rejectionReason}</span>
+                          </div>
+                        )}
+
+                        {canValidateGrades && (
+                          <div className="flex items-center justify-end gap-2 pt-1">
+                            {status !== 'rejete' && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => {
+                                  setRejectReasonInput('');
+                                  setRejectTarget({
+                                    gradeIds: [g.id],
+                                    label: `${stu?.lastName || ''} ${stu?.firstName || ''} · ${sub?.name || ''} (${g.average.toFixed(2)}/20)`,
+                                  });
+                                }}
+                                className="px-2.5 py-1 text-xs font-semibold text-red-700 border border-red-200 rounded-md hover:bg-red-50"
+                              >
+                                Rejeter
+                              </button>
+                            )}
+                            {status !== 'valide' && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => handleValidateSingle(g.id, 'valide')}
+                                className="px-3 py-1 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-md"
+                              >
+                                Valider
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Desktop queue table */}
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-50 text-slate-600 text-left">
+                        <th className="py-2.5 px-4 font-semibold">Élève & Classe</th>
+                        <th className="py-2.5 px-3 font-semibold">Matière & Période</th>
+                        <th className="py-2.5 px-3 font-semibold">Notes (/20)</th>
+                        <th className="py-2.5 px-3 font-semibold text-right">Moyenne</th>
+                        <th className="py-2.5 px-3 font-semibold">Enregistré par</th>
+                        <th className="py-2.5 px-3 font-semibold">Statut</th>
+                        <th className="py-2.5 px-4 font-semibold text-right">Validation Scolarité</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {queueGrades.map((g) => {
+                        const stu = state.students.find((s) => s.id === g.studentId);
+                        const cls = state.classes.find((c) => c.id === stu?.classId);
+                        const sub = state.subjects.find((s) => s.id === g.subjectId);
+                        const per = state.periods.find((p) => p.id === g.periodId);
+                        const status = getGradeStatus(g);
+                        return (
+                          <tr key={`qdesk-${g.id}`} className="hover:bg-slate-50/70">
+                            <td className="py-2.5 px-4">
+                              <div className="font-semibold text-slate-900">
+                                {stu ? `${stu.lastName} ${stu.firstName}` : g.studentId}
+                              </div>
+                              <div className="font-mono text-[11px] text-slate-500">
+                                {stu?.cardId || ''} {cls ? `· ${cls.name}` : ''}
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <div className="font-medium text-slate-900">{sub?.name || g.subjectId}</div>
+                              <div className="text-[11px] text-slate-500">{per?.label || g.periodId}</div>
+                            </td>
+                            <td className="py-2.5 px-3 font-mono text-slate-700 tabular-nums">
+                              {g.values.join(' · ')}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-blue-950 tabular-nums whitespace-nowrap">
+                              {g.average.toFixed(2)} / 20
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <div className="text-slate-800">{g.submittedBy || g.updatedBy}</div>
+                              <div className="font-mono text-[11px] text-slate-400">
+                                {formatDateTimeFr(g.submittedAt || g.updatedAt)}
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <div>{renderValidationBadge(g)}</div>
+                              {g.rejectionReason && (
+                                <div className="text-[11px] text-red-700 mt-0.5 max-w-[200px]">
+                                  Motif : {g.rejectionReason}
+                                </div>
+                              )}
+                              {g.validatedBy && status === 'valide' && (
+                                <div className="text-[11px] text-slate-400 mt-0.5">
+                                  Par {g.validatedBy}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                              <div className="inline-flex items-center gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (per) setSelectedPeriodId(per.id);
+                                    if (cls) setSelectedClassId(cls.id);
+                                    if (sub) setSelectedSubjectId(sub.id);
+                                    setEntryMode('classe');
+                                  }}
+                                  className="px-2 py-1 text-[11px] font-medium text-slate-600 border border-slate-200 rounded hover:bg-slate-100"
+                                >
+                                  Grille
+                                </button>
+                                {canValidateGrades && status !== 'valide' && (
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => handleValidateSingle(g.id, 'valide')}
+                                    className="px-2.5 py-1 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-50 rounded"
+                                  >
+                                    Valider
+                                  </button>
+                                )}
+                                {canValidateGrades && status !== 'rejete' && (
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => {
+                                      setRejectReasonInput('');
+                                      setRejectTarget({
+                                        gradeIds: [g.id],
+                                        label: `${stu?.lastName || ''} ${stu?.firstName || ''} · ${sub?.name || ''} (${g.average.toFixed(2)}/20)`,
+                                      });
+                                    }}
+                                    className="px-2.5 py-1 text-xs font-semibold text-red-700 border border-red-200 hover:bg-red-50 disabled:opacity-50 rounded"
+                                  >
+                                    Rejeter
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
       {/* TAB 1: NOTES & MOYENNES */}
       {activeTab === 'notes' && (
@@ -1038,7 +1528,7 @@ export const SecretariatView: React.FC<{
                   Période verrouillée : toute modification exige un motif enregistré dans le journal d’audit (RG-08).
                 </span>
               </div>
-              {!isReadOnly && (
+              {canRecordGrades && (
                 <input
                   type="text"
                   value={batchOverrideReason}
@@ -1059,7 +1549,7 @@ export const SecretariatView: React.FC<{
                 </strong>
                 .
               </p>
-              {!isReadOnly && selectedClass && (
+              {canManageAcademic && selectedClass && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1128,7 +1618,15 @@ export const SecretariatView: React.FC<{
                               </div>
                               <div className="text-[11px] font-mono text-slate-500">
                                 {stu.cardId}
-                                {draft.dirty ? ' · Modifié' : existing ? ' · Enregistré' : ''}
+                                {draft.dirty ? ' · Modifié' : ''}
+                              </div>
+                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                {renderValidationBadge(existing)}
+                                {existing?.rejectionReason && (
+                                  <span className="text-[11px] text-red-700">
+                                    Motif : {existing.rejectionReason}
+                                  </span>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -1152,7 +1650,7 @@ export const SecretariatView: React.FC<{
                                 <input
                                   type="text"
                                   inputMode="decimal"
-                                  disabled={isReadOnly}
+                                  disabled={notesReadOnly}
                                   value={cellVal}
                                   onChange={(e) =>
                                     updateDraftSlot(stu.id, selectedSubjectId, idx, e.target.value)
@@ -1171,7 +1669,7 @@ export const SecretariatView: React.FC<{
 
                         <input
                           type="text"
-                          disabled={isReadOnly}
+                          disabled={notesReadOnly}
                           value={draft.appreciation}
                           onChange={(e) =>
                             updateDraftField(stu.id, selectedSubjectId, 'appreciation', e.target.value)
@@ -1183,7 +1681,7 @@ export const SecretariatView: React.FC<{
                         {selectedPeriod?.status === 'verrouille' && (
                           <input
                             type="text"
-                            disabled={isReadOnly}
+                            disabled={notesReadOnly}
                             value={draft.overrideReason}
                             onChange={(e) =>
                               updateDraftField(stu.id, selectedSubjectId, 'overrideReason', e.target.value)
@@ -1193,27 +1691,58 @@ export const SecretariatView: React.FC<{
                           />
                         )}
 
-                        {!isReadOnly && (
-                          <div className="flex items-center justify-end gap-2">
-                            {existing && (
+                        {(canRecordGrades || (canValidateGrades && existing)) && (
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            {canValidateGrades && existing && getGradeStatus(existing) !== 'rejete' && (
                               <button
                                 type="button"
                                 disabled={busy}
-                                onClick={() => handleDeleteGrade(stu.id, selectedSubjectId)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-red-700 border border-red-200 rounded-md hover:bg-red-50"
+                                onClick={() => {
+                                  const sub = classSubjects.find((s) => s.id === selectedSubjectId);
+                                  setRejectReasonInput('');
+                                  setRejectTarget({
+                                    gradeIds: [existing.id],
+                                    label: `${stu.lastName} ${stu.firstName} · ${sub?.name || ''}`,
+                                  });
+                                }}
+                                className="px-2.5 py-1.5 text-xs font-semibold text-red-700 border border-red-200 rounded-md hover:bg-red-50"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                Supprimer
+                                Rejeter
                               </button>
                             )}
-                            <button
-                              type="button"
-                              disabled={busy || !selectedSubjectId || hasInvalid || validNumbers.length === 0}
-                              onClick={() => handleSaveGrade(stu.id, selectedSubjectId)}
-                              className="px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 disabled:opacity-45 rounded-md"
-                            >
-                              Enregistrer
-                            </button>
+                            {canValidateGrades && existing && getGradeStatus(existing) !== 'valide' && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => handleValidateSingle(existing.id, 'valide')}
+                                className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-md"
+                              >
+                                Valider
+                              </button>
+                            )}
+                            {canRecordGrades &&
+                              existing &&
+                              !(session.role === 'enseignant' && getGradeStatus(existing) === 'valide') && (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => handleDeleteGrade(stu.id, selectedSubjectId)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-red-700 border border-red-200 rounded-md hover:bg-red-50"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  Supprimer
+                                </button>
+                              )}
+                            {canRecordGrades && (
+                              <button
+                                type="button"
+                                disabled={busy || !selectedSubjectId || hasInvalid || validNumbers.length === 0}
+                                onClick={() => handleSaveGrade(stu.id, selectedSubjectId)}
+                                className="px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 disabled:opacity-45 rounded-md"
+                              >
+                                Enregistrer
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1291,11 +1820,15 @@ export const SecretariatView: React.FC<{
                                 </div>
                                 <div className="text-[11px] font-mono text-slate-500">
                                   {stu.cardId}
-                                  {draft.dirty
-                                    ? ' · Modifié'
-                                    : existing
-                                      ? ' · Enregistré'
-                                      : ''}
+                                  {draft.dirty ? ' · Modifié' : ''}
+                                </div>
+                                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                  {renderValidationBadge(existing)}
+                                  {existing?.rejectionReason && (
+                                    <span className="text-[11px] text-red-700">
+                                      Motif : {existing.rejectionReason}
+                                    </span>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -1308,7 +1841,7 @@ export const SecretariatView: React.FC<{
                                 <input
                                   type="text"
                                   inputMode="decimal"
-                                  disabled={isReadOnly}
+                                  disabled={notesReadOnly}
                                   value={cellVal}
                                   onChange={(e) =>
                                     updateDraftSlot(stu.id, selectedSubjectId, idx, e.target.value)
@@ -1332,7 +1865,7 @@ export const SecretariatView: React.FC<{
                           <td className="py-2.5 px-4">
                             <input
                               type="text"
-                              disabled={isReadOnly}
+                              disabled={notesReadOnly}
                               value={draft.appreciation}
                               onChange={(e) =>
                                 updateDraftField(
@@ -1350,7 +1883,7 @@ export const SecretariatView: React.FC<{
                             <td className="py-2.5 px-3">
                               <input
                                 type="text"
-                                disabled={isReadOnly}
+                                disabled={notesReadOnly}
                                 value={draft.overrideReason}
                                 onChange={(e) =>
                                   updateDraftField(
@@ -1366,30 +1899,61 @@ export const SecretariatView: React.FC<{
                             </td>
                           )}
                           <td className="py-2.5 px-4 text-right">
-                            {!isReadOnly ? (
+                            {canRecordGrades || (canValidateGrades && existing) ? (
                               <div className="inline-flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  disabled={
-                                    busy || !selectedSubjectId || hasInvalid || validNumbers.length === 0
-                                  }
-                                  onClick={() => handleSaveGrade(stu.id, selectedSubjectId)}
-                                  className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 disabled:opacity-45 rounded-md whitespace-nowrap"
-                                >
-                                  Enregistrer
-                                </button>
-                                {existing && (
+                                {canValidateGrades && existing && getGradeStatus(existing) !== 'valide' && (
                                   <button
                                     type="button"
                                     disabled={busy}
-                                    onClick={() => handleDeleteGrade(stu.id, selectedSubjectId)}
-                                    title="Supprimer cette note"
-                                    aria-label="Supprimer cette note"
-                                    className="p-1.5 text-slate-400 hover:text-red-600 rounded-md hover:bg-red-50"
+                                    onClick={() => handleValidateSingle(existing.id, 'valide')}
+                                    className="px-2.5 py-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-45 rounded-md whitespace-nowrap"
                                   >
-                                    <Trash2 className="w-3.5 h-3.5" />
+                                    Valider
                                   </button>
                                 )}
+                                {canValidateGrades && existing && getGradeStatus(existing) !== 'rejete' && (
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => {
+                                      const sub = classSubjects.find((s) => s.id === selectedSubjectId);
+                                      setRejectReasonInput('');
+                                      setRejectTarget({
+                                        gradeIds: [existing.id],
+                                        label: `${stu.lastName} ${stu.firstName} · ${sub?.name || ''}`,
+                                      });
+                                    }}
+                                    className="px-2.5 py-1.5 text-xs font-semibold text-red-700 border border-red-200 hover:bg-red-50 disabled:opacity-45 rounded-md whitespace-nowrap"
+                                  >
+                                    Rejeter
+                                  </button>
+                                )}
+                                {canRecordGrades && (
+                                  <button
+                                    type="button"
+                                    disabled={
+                                      busy || !selectedSubjectId || hasInvalid || validNumbers.length === 0
+                                    }
+                                    onClick={() => handleSaveGrade(stu.id, selectedSubjectId)}
+                                    className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 disabled:opacity-45 rounded-md whitespace-nowrap"
+                                  >
+                                    Enregistrer
+                                  </button>
+                                )}
+                                {canRecordGrades &&
+                                  existing &&
+                                  !(session.role === 'enseignant' && getGradeStatus(existing) === 'valide') && (
+                                    <button
+                                      type="button"
+                                      disabled={busy}
+                                      onClick={() => handleDeleteGrade(stu.id, selectedSubjectId)}
+                                      title="Supprimer cette note"
+                                      aria-label="Supprimer cette note"
+                                      className="p-1.5 text-slate-400 hover:text-red-600 rounded-md hover:bg-red-50"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
                               </div>
                             ) : (
                               <span className="text-xs text-slate-400">Lecture seule</span>
@@ -1443,7 +2007,15 @@ export const SecretariatView: React.FC<{
                             </div>
                             <div className="text-[11px] text-slate-500">
                               Coeff. {sub.coefficient} · {sub.teacherName}
-                              {draft.dirty ? ' · Modifié' : existing ? ' · Enregistré' : ''}
+                              {draft.dirty ? ' · Modifié' : ''}
+                            </div>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                              {renderValidationBadge(existing)}
+                              {existing?.rejectionReason && (
+                                <span className="text-[11px] text-red-700">
+                                  Motif : {existing.rejectionReason}
+                                </span>
+                              )}
                             </div>
                           </div>
                           <div className="font-mono font-bold text-sm text-blue-950 tabular-nums shrink-0">
@@ -1463,7 +2035,7 @@ export const SecretariatView: React.FC<{
                                 <input
                                   type="text"
                                   inputMode="decimal"
-                                  disabled={isReadOnly}
+                                  disabled={notesReadOnly}
                                   value={cellVal}
                                   onChange={(e) =>
                                     updateDraftSlot(selectedStudentId, sub.id, idx, e.target.value)
@@ -1482,7 +2054,7 @@ export const SecretariatView: React.FC<{
 
                         <input
                           type="text"
-                          disabled={isReadOnly}
+                          disabled={notesReadOnly}
                           value={draft.appreciation}
                           onChange={(e) =>
                             updateDraftField(selectedStudentId, sub.id, 'appreciation', e.target.value)
@@ -1494,7 +2066,7 @@ export const SecretariatView: React.FC<{
                         {selectedPeriod?.status === 'verrouille' && (
                           <input
                             type="text"
-                            disabled={isReadOnly}
+                            disabled={notesReadOnly}
                             value={draft.overrideReason}
                             onChange={(e) =>
                               updateDraftField(selectedStudentId, sub.id, 'overrideReason', e.target.value)
@@ -1504,27 +2076,58 @@ export const SecretariatView: React.FC<{
                           />
                         )}
 
-                        {!isReadOnly && (
-                          <div className="flex items-center justify-end gap-2">
-                            {existing && (
+                        {(canRecordGrades || (canValidateGrades && existing)) && (
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            {canValidateGrades && existing && getGradeStatus(existing) !== 'rejete' && (
                               <button
                                 type="button"
                                 disabled={busy}
-                                onClick={() => handleDeleteGrade(selectedStudentId, sub.id)}
-                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-red-700 border border-red-200 rounded-md hover:bg-red-50"
+                                onClick={() => {
+                                  const stu = classStudents.find((s) => s.id === selectedStudentId);
+                                  setRejectReasonInput('');
+                                  setRejectTarget({
+                                    gradeIds: [existing.id],
+                                    label: `${stu?.lastName || ''} ${stu?.firstName || ''} · ${sub.name}`,
+                                  });
+                                }}
+                                className="px-2.5 py-1.5 text-xs font-semibold text-red-700 border border-red-200 rounded-md hover:bg-red-50"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                Supprimer
+                                Rejeter
                               </button>
                             )}
-                            <button
-                              type="button"
-                              disabled={busy || hasInvalid || validNumbers.length === 0}
-                              onClick={() => handleSaveGrade(selectedStudentId, sub.id)}
-                              className="px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 disabled:opacity-45 rounded-md"
-                            >
-                              Enregistrer
-                            </button>
+                            {canValidateGrades && existing && getGradeStatus(existing) !== 'valide' && (
+                              <button
+                                type="button"
+                                disabled={busy}
+                                onClick={() => handleValidateSingle(existing.id, 'valide')}
+                                className="px-3 py-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-md"
+                              >
+                                Valider
+                              </button>
+                            )}
+                            {canRecordGrades &&
+                              existing &&
+                              !(session.role === 'enseignant' && getGradeStatus(existing) === 'valide') && (
+                                <button
+                                  type="button"
+                                  disabled={busy}
+                                  onClick={() => handleDeleteGrade(selectedStudentId, sub.id)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-red-700 border border-red-200 rounded-md hover:bg-red-50"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                  Supprimer
+                                </button>
+                              )}
+                            {canRecordGrades && (
+                              <button
+                                type="button"
+                                disabled={busy || hasInvalid || validNumbers.length === 0}
+                                onClick={() => handleSaveGrade(selectedStudentId, sub.id)}
+                                className="px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 disabled:opacity-45 rounded-md"
+                              >
+                                Enregistrer
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1592,11 +2195,15 @@ export const SecretariatView: React.FC<{
                             </div>
                             <div className="text-[11px] text-slate-500">
                               Coeff. {sub.coefficient} · {sub.teacherName}
-                              {draft.dirty
-                                ? ' · Modifié'
-                                : existing
-                                  ? ' · Enregistré'
-                                  : ''}
+                              {draft.dirty ? ' · Modifié' : ''}
+                            </div>
+                            <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                              {renderValidationBadge(existing)}
+                              {existing?.rejectionReason && (
+                                <span className="text-[11px] text-red-700">
+                                  Motif : {existing.rejectionReason}
+                                </span>
+                              )}
                             </div>
                           </td>
                           {Array.from({ length: evalSlotCount }).map((_, idx) => {
@@ -1607,7 +2214,7 @@ export const SecretariatView: React.FC<{
                                 <input
                                   type="text"
                                   inputMode="decimal"
-                                  disabled={isReadOnly}
+                                  disabled={notesReadOnly}
                                   value={cellVal}
                                   onChange={(e) =>
                                     updateDraftSlot(selectedStudentId, sub.id, idx, e.target.value)
@@ -1628,7 +2235,7 @@ export const SecretariatView: React.FC<{
                           <td className="py-2.5 px-4">
                             <input
                               type="text"
-                              disabled={isReadOnly}
+                              disabled={notesReadOnly}
                               value={draft.appreciation}
                               onChange={(e) =>
                                 updateDraftField(
@@ -1646,7 +2253,7 @@ export const SecretariatView: React.FC<{
                             <td className="py-2.5 px-3">
                               <input
                                 type="text"
-                                disabled={isReadOnly}
+                                disabled={notesReadOnly}
                                 value={draft.overrideReason}
                                 onChange={(e) =>
                                   updateDraftField(
@@ -1662,28 +2269,59 @@ export const SecretariatView: React.FC<{
                             </td>
                           )}
                           <td className="py-2.5 px-4 text-right">
-                            {!isReadOnly ? (
+                            {canRecordGrades || (canValidateGrades && existing) ? (
                               <div className="inline-flex items-center gap-1.5">
-                                <button
-                                  type="button"
-                                  disabled={busy || hasInvalid || validNumbers.length === 0}
-                                  onClick={() => handleSaveGrade(selectedStudentId, sub.id)}
-                                  className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 disabled:opacity-45 rounded-md whitespace-nowrap"
-                                >
-                                  Enregistrer
-                                </button>
-                                {existing && (
+                                {canValidateGrades && existing && getGradeStatus(existing) !== 'valide' && (
                                   <button
                                     type="button"
                                     disabled={busy}
-                                    onClick={() => handleDeleteGrade(selectedStudentId, sub.id)}
-                                    title="Supprimer cette note"
-                                    aria-label="Supprimer cette note"
-                                    className="p-1.5 text-slate-400 hover:text-red-600 rounded-md hover:bg-red-50"
+                                    onClick={() => handleValidateSingle(existing.id, 'valide')}
+                                    className="px-2.5 py-1.5 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-45 rounded-md whitespace-nowrap"
                                   >
-                                    <Trash2 className="w-3.5 h-3.5" />
+                                    Valider
                                   </button>
                                 )}
+                                {canValidateGrades && existing && getGradeStatus(existing) !== 'rejete' && (
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => {
+                                      const stu = classStudents.find((s) => s.id === selectedStudentId);
+                                      setRejectReasonInput('');
+                                      setRejectTarget({
+                                        gradeIds: [existing.id],
+                                        label: `${stu?.lastName || ''} ${stu?.firstName || ''} · ${sub.name}`,
+                                      });
+                                    }}
+                                    className="px-2.5 py-1.5 text-xs font-semibold text-red-700 border border-red-200 hover:bg-red-50 disabled:opacity-45 rounded-md whitespace-nowrap"
+                                  >
+                                    Rejeter
+                                  </button>
+                                )}
+                                {canRecordGrades && (
+                                  <button
+                                    type="button"
+                                    disabled={busy || hasInvalid || validNumbers.length === 0}
+                                    onClick={() => handleSaveGrade(selectedStudentId, sub.id)}
+                                    className="px-3 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 disabled:opacity-45 rounded-md whitespace-nowrap"
+                                  >
+                                    Enregistrer
+                                  </button>
+                                )}
+                                {canRecordGrades &&
+                                  existing &&
+                                  !(session.role === 'enseignant' && getGradeStatus(existing) === 'valide') && (
+                                    <button
+                                      type="button"
+                                      disabled={busy}
+                                      onClick={() => handleDeleteGrade(selectedStudentId, sub.id)}
+                                      title="Supprimer cette note"
+                                      aria-label="Supprimer cette note"
+                                      className="p-1.5 text-slate-400 hover:text-red-600 rounded-md hover:bg-red-50"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
                               </div>
                             ) : (
                               <span className="text-xs text-slate-400">Lecture seule</span>
@@ -2249,6 +2887,49 @@ export const SecretariatView: React.FC<{
                 className="px-4 py-2 text-xs font-semibold text-white bg-blue-900 rounded-lg"
               >
                 Ajouter la matière
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {rejectTarget && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <form
+            onSubmit={handleSubmitRejectionModal}
+            className="bg-white border border-slate-200 rounded-xl max-w-md w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 my-auto"
+          >
+            <h3 className="font-display text-lg font-bold text-slate-900">
+              Rejeter une fiche de notes
+            </h3>
+            <p className="text-xs text-slate-600">
+              {rejectTarget.label} — Indiquez le motif du rejet afin que l’enseignant puisse corriger et soumettre à nouveau.
+            </p>
+            <textarea
+              required
+              rows={3}
+              value={rejectReasonInput}
+              onChange={(e) => setRejectReasonInput(e.target.value)}
+              placeholder="Ex. Erreur de report de note ou devoir manquant..."
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+            />
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => {
+                  setRejectTarget(null);
+                  setRejectReasonInput('');
+                }}
+                className="px-4 py-2 text-xs font-semibold text-slate-600"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                disabled={busy || !rejectReasonInput.trim()}
+                className="px-4 py-2 text-xs font-semibold text-white bg-red-700 hover:bg-red-800 disabled:opacity-50 rounded-lg"
+              >
+                Confirmer le rejet
               </button>
             </div>
           </form>
