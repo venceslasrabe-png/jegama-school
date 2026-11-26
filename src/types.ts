@@ -94,6 +94,8 @@ export interface FeeGridItem {
   registrationFee: number;
   annualTuition: number;
   installments: FeeInstallment[];
+  updatedAt?: string;
+  updatedBy?: string;
 }
 
 export interface SchoolClass {

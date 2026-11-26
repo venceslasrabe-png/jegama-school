@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import {
   Archive,
   CalendarPlus,
+  CreditCard,
   Download,
   Plus,
   RotateCcw,
@@ -19,7 +20,8 @@ export const AdminView: React.FC<{
   state: AppState;
   session: SessionUser;
   onRefresh: () => Promise<void>;
-}> = ({ state, session, onRefresh }) => {
+  onOpenFeeGrid?: () => void;
+}> = ({ state, session, onRefresh, onOpenFeeGrid }) => {
   const isReadOnly = session.role === 'direction';
   const [activeTab, setActiveTab] = useState<'params' | 'archives' | 'users' | 'audit'>('params');
   const [openNewYearSignal, setOpenNewYearSignal] = useState(0);
@@ -362,6 +364,22 @@ export const AdminView: React.FC<{
 
             {!isReadOnly ? (
               <div className="space-y-3">
+                {onOpenFeeGrid && (
+                  <button
+                    type="button"
+                    onClick={onOpenFeeGrid}
+                    className="w-full inline-flex items-center justify-between gap-2 px-4 py-2.5 text-xs font-semibold text-blue-950 border border-blue-200 bg-blue-50/70 hover:bg-blue-100 rounded-lg transition-colors"
+                  >
+                    <span className="inline-flex items-center gap-2">
+                      <CreditCard className="w-4 h-4 text-blue-900" />
+                      Mettre à jour la grille tarifaire
+                    </span>
+                    <span className="font-mono tabular-nums text-[11px] text-blue-800">
+                      {state.feeGrid.length} formules
+                    </span>
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {

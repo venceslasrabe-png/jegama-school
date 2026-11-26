@@ -10,11 +10,13 @@ import {
   buildReminderMessageText,
   buildTeacherPayslip,
   buildWhatsappLaunchUrl,
+  computeAdjustedFeeItem,
   computeDashboardSummary,
   computeStudentBalance,
   computeStudentRecoveryProfile,
   createPeriodsForYear,
   createSeedDatabase,
+  distributeFeeInstallments,
   ensureArchiveSeedData,
   ensureReinscriptionData,
   ensureTeacherSeedData,
@@ -785,7 +787,7 @@ async function startServer() {
     res.json({ student });
   });
 
-  // Fee Grid configuration
+  // Fee Grid configuration (Update, Create, Bulk Update, Delete)
   app.put('/api/fee-grid/:id', requireRole(['scolarite', 'admin']), (req, res) => {
     const db = loadDatabase();
     const actor = getActor(req, db)!;
@@ -794,18 +796,256 @@ async function startServer() {
       res.status(404).json({ error: 'Grille tarifaire introuvable.' });
       return;
     }
+    const existing = db.feeGrid[idx];
     const body = req.body as Partial<FeeGridItem>;
-    db.feeGrid[idx] = { ...db.feeGrid[idx], ...body };
+    const nextCycle = body.cycle || existing.cycle;
+    const nextProgram = body.program || existing.program;
+    if (
+      db.feeGrid.some(
+        (f, i) => i !== idx && f.cycle === nextCycle && f.program === nextProgram
+      )
+    ) {
+      res.status(400).json({
+        error: `Une formule existe déjà pour ${nextCycle} (${nextProgram}).`,
+      });
+      return;
+    }
+
+    const regFee =
+      body.registrationFee !== undefined ? Number(body.registrationFee) : existing.registrationFee;
+    const tuition =
+      body.annualTuition !== undefined ? Number(body.annualTuition) : existing.annualTuition;
+    if (!Number.isFinite(regFee) || regFee < 0 || !Number.isFinite(tuition) || tuition < 0) {
+      res.status(400).json({ error: 'Les montants tarifaires doivent être des nombres positifs.' });
+      return;
+    }
+
+    const nextInstallments = Array.isArray(body.installments) && body.installments.length > 0
+      ? body.installments.map((inst, tIdx) => ({
+          label: (inst.label || `Tranche ${tIdx + 1}`).trim(),
+          amount: Math.max(0, Math.round(Number(inst.amount || 0))),
+          dueDate: (inst.dueDate || existing.installments[tIdx]?.dueDate || '2026-09-15').trim(),
+        }))
+      : existing.installments;
+
+    const now = new Date().toISOString();
+    db.feeGrid[idx] = {
+      ...existing,
+      cycle: nextCycle,
+      program: nextProgram,
+      registrationFee: Math.round(regFee),
+      annualTuition: Math.round(tuition),
+      installments: nextInstallments,
+      updatedAt: now,
+      updatedBy: actor.fullName,
+    };
+
     addAuditLog(
       db,
       actor,
       'Modification grille tarifaire',
       'Tarifs',
       db.feeGrid[idx].id,
-      `${db.feeGrid[idx].cycle} (${db.feeGrid[idx].program}) mis à jour.`
+      `${db.feeGrid[idx].cycle} (${db.feeGrid[idx].program}) : Inscription ${db.feeGrid[idx].registrationFee.toLocaleString('fr-FR')} FCFA, Scolarité ${db.feeGrid[idx].annualTuition.toLocaleString('fr-FR')} FCFA (${db.feeGrid[idx].installments.length} tranches).`
     );
     saveDatabase(db);
     res.json({ feeGridItem: db.feeGrid[idx] });
+  });
+
+  app.post('/api/fee-grid', requireRole(['scolarite', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const body = req.body as Partial<FeeGridItem>;
+    if (!body.cycle || !body.program) {
+      res.status(400).json({ error: 'Le cycle et le programme sont requis.' });
+      return;
+    }
+    if (db.feeGrid.some((f) => f.cycle === body.cycle && f.program === body.program)) {
+      res.status(400).json({
+        error: `Une formule tarifaire existe déjà pour ${body.cycle} (${body.program}).`,
+      });
+      return;
+    }
+
+    const registrationFee = Math.max(0, Math.round(Number(body.registrationFee || 0)));
+    const annualTuition = Math.max(0, Math.round(Number(body.annualTuition || 0)));
+    const installments =
+      Array.isArray(body.installments) && body.installments.length > 0
+        ? body.installments.map((inst, tIdx) => ({
+            label: (inst.label || `Tranche ${tIdx + 1}`).trim(),
+            amount: Math.max(0, Math.round(Number(inst.amount || 0))),
+            dueDate: (inst.dueDate || '2026-09-15').trim(),
+          }))
+        : distributeFeeInstallments(registrationFee, annualTuition);
+
+    const now = new Date().toISOString();
+    const created: FeeGridItem = {
+      id: `fee-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      cycle: body.cycle,
+      program: body.program,
+      registrationFee,
+      annualTuition,
+      installments,
+      updatedAt: now,
+      updatedBy: actor.fullName,
+    };
+
+    db.feeGrid.push(created);
+    addAuditLog(
+      db,
+      actor,
+      'Création formule tarifaire',
+      'Tarifs',
+      created.id,
+      `Nouvelle formule ${created.cycle} (${created.program}) : Total ${(created.registrationFee + created.annualTuition).toLocaleString('fr-FR')} FCFA.`
+    );
+    saveDatabase(db);
+    res.status(201).json({ feeGridItem: created });
+  });
+
+  app.post('/api/fee-grid/bulk-update', requireRole(['scolarite', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const body = req.body as {
+      mode?: 'adjust' | 'direct';
+      targetIds?: string[];
+      adjustType?: 'percent' | 'fixed';
+      registrationDelta?: number;
+      tuitionDelta?: number;
+      roundTo?: number;
+      dueDateOverrides?: string[];
+      rebalanceInstallments?: boolean;
+      items?: Array<{
+        id: string;
+        registrationFee: number;
+        annualTuition: number;
+        installments?: FeeGridItem['installments'];
+      }>;
+    };
+
+    const now = new Date().toISOString();
+    let updatedCount = 0;
+
+    if (body.mode === 'direct') {
+      const items = Array.isArray(body.items) ? body.items : [];
+      if (items.length === 0) {
+        res.status(400).json({ error: 'Aucune ligne tarifaire fournie pour la mise à jour.' });
+        return;
+      }
+      for (const patch of items) {
+        const idx = db.feeGrid.findIndex((f) => f.id === patch.id);
+        if (idx < 0) continue;
+        const reg = Math.max(0, Math.round(Number(patch.registrationFee ?? db.feeGrid[idx].registrationFee)));
+        const tui = Math.max(0, Math.round(Number(patch.annualTuition ?? db.feeGrid[idx].annualTuition)));
+        const nextInst =
+          Array.isArray(patch.installments) && patch.installments.length > 0
+            ? patch.installments.map((inst, tIdx) => ({
+                label: (inst.label || `Tranche ${tIdx + 1}`).trim(),
+                amount: Math.max(0, Math.round(Number(inst.amount || 0))),
+                dueDate: (inst.dueDate || '2026-09-15').trim(),
+              }))
+            : distributeFeeInstallments(reg, tui, db.feeGrid[idx].installments);
+        db.feeGrid[idx] = {
+          ...db.feeGrid[idx],
+          registrationFee: reg,
+          annualTuition: tui,
+          installments: nextInst,
+          updatedAt: now,
+          updatedBy: actor.fullName,
+        };
+        updatedCount += 1;
+      }
+
+      addAuditLog(
+        db,
+        actor,
+        'Mise à jour globale grille tarifaire',
+        'Tarifs',
+        'bulk-direct',
+        `${updatedCount} formule(s) tarifaire(s) actualisée(s) en édition matricielle.`
+      );
+      saveDatabase(db);
+      res.json({ updatedCount, feeGrid: db.feeGrid });
+      return;
+    }
+
+    const targetSet =
+      Array.isArray(body.targetIds) && body.targetIds.length > 0 ? new Set(body.targetIds) : null;
+    const adjustType = body.adjustType === 'fixed' ? 'fixed' : 'percent';
+    const registrationDelta = Number(body.registrationDelta || 0);
+    const tuitionDelta = Number(body.tuitionDelta || 0);
+    const roundTo = body.roundTo !== undefined ? Number(body.roundTo) : 500;
+    const rebalanceInstallments = body.rebalanceInstallments !== false;
+
+    db.feeGrid = db.feeGrid.map((fee) => {
+      if (targetSet && !targetSet.has(fee.id)) return fee;
+      const adjusted = computeAdjustedFeeItem(fee, {
+        adjustType,
+        registrationDelta,
+        tuitionDelta,
+        roundTo,
+        dueDateOverrides: body.dueDateOverrides,
+        rebalanceInstallments,
+      });
+      updatedCount += 1;
+      return {
+        ...adjusted,
+        updatedAt: now,
+        updatedBy: actor.fullName,
+      };
+    });
+
+    if (updatedCount === 0) {
+      res.status(400).json({ error: 'Aucune formule ciblée pour la révision globale.' });
+      return;
+    }
+
+    addAuditLog(
+      db,
+      actor,
+      'Révision globale grille tarifaire',
+      'Tarifs',
+      'bulk-adjust',
+      `${updatedCount} formule(s) révisée(s) (${adjustType === 'percent' ? `${tuitionDelta >= 0 ? '+' : ''}${tuitionDelta}% scolarité` : `${tuitionDelta >= 0 ? '+' : ''}${tuitionDelta} FCFA scolarité`}).`
+    );
+    saveDatabase(db);
+    res.json({ updatedCount, feeGrid: db.feeGrid });
+  });
+
+  app.delete('/api/fee-grid/:id', requireRole(['scolarite', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const idx = db.feeGrid.findIndex((f) => f.id === req.params.id);
+    if (idx < 0) {
+      res.status(404).json({ error: 'Grille tarifaire introuvable.' });
+      return;
+    }
+    if (db.feeGrid.length <= 1) {
+      res.status(400).json({ error: 'Au moins une formule tarifaire doit rester active.' });
+      return;
+    }
+    const target = db.feeGrid[idx];
+    const activeStudentsUsing = db.students.filter(
+      (s) => s.status !== 'archive' && s.cycle === target.cycle && s.program === target.program
+    );
+    if (activeStudentsUsing.length > 0) {
+      res.status(400).json({
+        error: `Suppression impossible : ${activeStudentsUsing.length} élève(s) actif(s) dépendent du tarif ${target.cycle} (${target.program}).`,
+      });
+      return;
+    }
+
+    db.feeGrid.splice(idx, 1);
+    addAuditLog(
+      db,
+      actor,
+      'Suppression formule tarifaire',
+      'Tarifs',
+      target.id,
+      `Formule supprimée : ${target.cycle} (${target.program}).`
+    );
+    saveDatabase(db);
+    res.json({ deletedId: target.id });
   });
 
   // --- CAISSE: PAYMENTS & RECEIPTS ---

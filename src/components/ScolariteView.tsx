@@ -30,7 +30,9 @@ import {
 import { apiRequest, type AppState, type SessionUser } from '../api';
 import {
   buildReminderMessageText,
+  computeAdjustedFeeItem,
   computeStudentRecoveryProfile,
+  distributeFeeInstallments,
   evaluateStudentAutoFollowUp,
   getDefaultCollectionAutomation,
   getFeeForReinscription,
@@ -109,21 +111,28 @@ export const ScolariteView: React.FC<{
   state: AppState;
   session: SessionUser;
   initialTab?: ScolariteTab;
+  requestedTab?: { tab: ScolariteTab; nonce: number } | null;
   onOpenNotesValidation?: () => void;
   onRefresh: () => Promise<void>;
-}> = ({ state, session, initialTab, onOpenNotesValidation, onRefresh }) => {
+}> = ({ state, session, initialTab, requestedTab, onOpenNotesValidation, onRefresh }) => {
   const isCaisse = session.role === 'caisse';
   const canModifyScolarite = session.role === 'scolarite' || session.role === 'admin';
   const canCollectCaisse = session.role === 'caisse' || session.role === 'scolarite' || session.role === 'admin';
   const isReadOnly = session.role === 'direction' || session.role === 'secretariat';
 
   const [activeTab, setActiveTab] = useState<ScolariteTab>(
-    initialTab || (isCaisse ? 'caisse' : 'dossiers')
+    requestedTab?.tab || initialTab || (isCaisse ? 'caisse' : 'dossiers')
   );
 
   React.useEffect(() => {
     if (initialTab) setActiveTab(initialTab);
   }, [initialTab]);
+
+  React.useEffect(() => {
+    if (requestedTab?.tab) {
+      setActiveTab(requestedTab.tab);
+    }
+  }, [requestedTab]);
   const [search, setSearch] = useState('');
   const [cycleFilter, setCycleFilter] = useState<string>('all');
   const [paymentFilter, setPaymentFilter] = useState<string>('all');
@@ -147,6 +156,22 @@ export const ScolariteView: React.FC<{
   const [showParentModal, setShowParentModal] = useState(false);
   const [editingParent, setEditingParent] = useState<ParentTutor | null>(null);
   const [editingFee, setEditingFee] = useState<FeeGridItem | null>(null);
+  const [feeModalMode, setFeeModalMode] = useState<'edit' | 'create'>('edit');
+  const [feeProgramFilter, setFeeProgramFilter] = useState<'all' | SchoolProgram>('all');
+  const [feeSearch, setFeeSearch] = useState('');
+  const [confirmDeleteFeeId, setConfirmDeleteFeeId] = useState<string | null>(null);
+  const [showBulkFeeModal, setShowBulkFeeModal] = useState(false);
+  const [bulkFeeMode, setBulkFeeMode] = useState<'adjust' | 'direct'>('adjust');
+  const [bulkFeeTargetIds, setBulkFeeTargetIds] = useState<string[]>([]);
+  const [bulkAdjustType, setBulkAdjustType] = useState<'percent' | 'fixed'>('percent');
+  const [bulkRegDelta, setBulkRegDelta] = useState<number>(0);
+  const [bulkTuitionDelta, setBulkTuitionDelta] = useState<number>(5);
+  const [bulkRoundTo, setBulkRoundTo] = useState<number>(500);
+  const [bulkRebalanceInstallments, setBulkRebalanceInstallments] = useState<boolean>(true);
+  const [bulkDueDates, setBulkDueDates] = useState<[string, string, string]>(['', '', '']);
+  const [bulkDirectDraft, setBulkDirectDraft] = useState<
+    Record<string, { registrationFee: number; annualTuition: number }>
+  >({});
   const [reinscriptionCertModal, setReinscriptionCertModal] = useState<ReenrollmentRecord | null>(
     null
   );
@@ -993,19 +1018,136 @@ export const ScolariteView: React.FC<{
     }
   };
 
+  const filteredFeeGrid = useMemo(() => {
+    const q = feeSearch.trim().toLowerCase();
+    return state.feeGrid.filter((fee) => {
+      if (feeProgramFilter !== 'all' && fee.program !== feeProgramFilter) return false;
+      if (q) {
+        const hay = `${fee.cycle} ${fee.program}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [state.feeGrid, feeProgramFilter, feeSearch]);
+
+  const feeStats = useMemo(() => {
+    const count = state.feeGrid.length;
+    const totals = state.feeGrid.map((f) => f.registrationFee + f.annualTuition);
+    const avg = count > 0 ? Math.round(totals.reduce((s, v) => s + v, 0) / count) : 0;
+    const min = count > 0 ? Math.min(...totals) : 0;
+    const max = count > 0 ? Math.max(...totals) : 0;
+    const sortedDates = state.feeGrid
+      .filter((f) => Boolean(f.updatedAt))
+      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    return {
+      count,
+      avg,
+      min,
+      max,
+      lastUpdatedAt: sortedDates[0]?.updatedAt || null,
+      lastUpdatedBy: sortedDates[0]?.updatedBy || null,
+    };
+  }, [state.feeGrid]);
+
+  const bulkPreviewRows = useMemo(() => {
+    const selectedSet = new Set(bulkFeeTargetIds);
+    return state.feeGrid
+      .filter((f) => selectedSet.has(f.id))
+      .map((fee) => {
+        const next = computeAdjustedFeeItem(fee, {
+          adjustType: bulkAdjustType,
+          registrationDelta: bulkRegDelta,
+          tuitionDelta: bulkTuitionDelta,
+          roundTo: bulkRoundTo,
+          dueDateOverrides: bulkDueDates,
+          rebalanceInstallments: bulkRebalanceInstallments,
+        });
+        const oldTotal = fee.registrationFee + fee.annualTuition;
+        const newTotal = next.registrationFee + next.annualTuition;
+        return {
+          before: fee,
+          after: next,
+          oldTotal,
+          newTotal,
+          delta: newTotal - oldTotal,
+        };
+      });
+  }, [
+    state.feeGrid,
+    bulkFeeTargetIds,
+    bulkAdjustType,
+    bulkRegDelta,
+    bulkTuitionDelta,
+    bulkRoundTo,
+    bulkDueDates,
+    bulkRebalanceInstallments,
+  ]);
+
+  const openEditFeeModal = (fee: FeeGridItem) => {
+    setFeeModalMode('edit');
+    setEditingFee({
+      ...fee,
+      installments: fee.installments.map((t) => ({ ...t })),
+    });
+  };
+
+  const openCreateFeeModal = () => {
+    let defaultCycle: SchoolCycle = 'Maternelle';
+    let defaultProgram: SchoolProgram = 'Français';
+    for (const c of CYCLES) {
+      for (const p of PROGRAMS) {
+        if (!state.feeGrid.some((f) => f.cycle === c && f.program === p)) {
+          defaultCycle = c;
+          defaultProgram = p;
+          break;
+        }
+      }
+    }
+    const baseReg = 50000;
+    const baseTuition = 300000;
+    setFeeModalMode('create');
+    setEditingFee({
+      id: 'new',
+      cycle: defaultCycle,
+      program: defaultProgram,
+      registrationFee: baseReg,
+      annualTuition: baseTuition,
+      installments: distributeFeeInstallments(baseReg, baseTuition),
+    });
+  };
+
   const handleSaveFee = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingFee) return;
+    if (editingFee.installments.length === 0) {
+      setFeedback({ type: 'err', text: 'Veuillez définir au moins une tranche de paiement.' });
+      return;
+    }
     setBusy(true);
+    setFeedback(null);
     try {
-      await apiRequest(
-        `/api/fee-grid/${editingFee.id}`,
-        { method: 'PUT', body: JSON.stringify(editingFee) },
-        session
-      );
+      if (feeModalMode === 'create') {
+        await apiRequest(
+          '/api/fee-grid',
+          { method: 'POST', body: JSON.stringify(editingFee) },
+          session
+        );
+      } else {
+        await apiRequest(
+          `/api/fee-grid/${editingFee.id}`,
+          { method: 'PUT', body: JSON.stringify(editingFee) },
+          session
+        );
+      }
       await onRefresh();
       setEditingFee(null);
-      setFeedback({ type: 'ok', text: 'Grille tarifaire mise à jour.' });
+      setFeedback({
+        type: 'ok',
+        text:
+          feeModalMode === 'create'
+            ? `Formule tarifaire ${editingFee.cycle} (${editingFee.program}) ajoutée.`
+            : `Tarif ${editingFee.cycle} (${editingFee.program}) mis à jour avec son échéancier.`,
+      });
     } catch (err) {
       setFeedback({
         type: 'err',
@@ -1014,6 +1156,154 @@ export const ScolariteView: React.FC<{
     } finally {
       setBusy(false);
     }
+  };
+
+  const handleDeleteFee = async (feeId: string) => {
+    setBusy(true);
+    setFeedback(null);
+    try {
+      await apiRequest(`/api/fee-grid/${feeId}`, { method: 'DELETE' }, session);
+      await onRefresh();
+      setConfirmDeleteFeeId(null);
+      setFeedback({ type: 'ok', text: 'Formule tarifaire supprimée.' });
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Suppression impossible.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openBulkFeeModal = (mode: 'adjust' | 'direct' = 'adjust') => {
+    setBulkFeeMode(mode);
+    setBulkFeeTargetIds(state.feeGrid.map((f) => f.id));
+    const draft: Record<string, { registrationFee: number; annualTuition: number }> = {};
+    state.feeGrid.forEach((f) => {
+      draft[f.id] = { registrationFee: f.registrationFee, annualTuition: f.annualTuition };
+    });
+    setBulkDirectDraft(draft);
+    setBulkDueDates(['', '', '']);
+    setShowBulkFeeModal(true);
+  };
+
+  const handleBulkFeeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setFeedback(null);
+    try {
+      if (bulkFeeMode === 'direct') {
+        const items = state.feeGrid.map((fee) => {
+          const patch = bulkDirectDraft[fee.id] || {
+            registrationFee: fee.registrationFee,
+            annualTuition: fee.annualTuition,
+          };
+          return {
+            id: fee.id,
+            registrationFee: patch.registrationFee,
+            annualTuition: patch.annualTuition,
+            installments: bulkRebalanceInstallments
+              ? distributeFeeInstallments(
+                  patch.registrationFee,
+                  patch.annualTuition,
+                  fee.installments,
+                  bulkRoundTo
+                )
+              : fee.installments,
+          };
+        });
+        const res = await apiRequest<{ updatedCount: number }>(
+          '/api/fee-grid/bulk-update',
+          { method: 'POST', body: JSON.stringify({ mode: 'direct', items }) },
+          session
+        );
+        await onRefresh();
+        setShowBulkFeeModal(false);
+        setFeedback({
+          type: 'ok',
+          text: `${res.updatedCount} formule(s) de la grille tarifaire mise(s) à jour en lot.`,
+        });
+      } else {
+        if (bulkFeeTargetIds.length === 0) {
+          setFeedback({ type: 'err', text: 'Sélectionnez au moins une formule tarifaire.' });
+          setBusy(false);
+          return;
+        }
+        const res = await apiRequest<{ updatedCount: number }>(
+          '/api/fee-grid/bulk-update',
+          {
+            method: 'POST',
+            body: JSON.stringify({
+              mode: 'adjust',
+              targetIds: bulkFeeTargetIds,
+              adjustType: bulkAdjustType,
+              registrationDelta: bulkRegDelta,
+              tuitionDelta: bulkTuitionDelta,
+              roundTo: bulkRoundTo,
+              dueDateOverrides: bulkDueDates,
+              rebalanceInstallments: bulkRebalanceInstallments,
+            }),
+          },
+          session
+        );
+        await onRefresh();
+        setShowBulkFeeModal(false);
+        setFeedback({
+          type: 'ok',
+          text: `Révision globale appliquée sur ${res.updatedCount} formule(s) tarifaire(s).`,
+        });
+      }
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Erreur lors de la mise à jour globale.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleExportFeeGridCsv = () => {
+    const headers = [
+      'Cycle',
+      'Programme',
+      'Frais inscription (FCFA)',
+      'Scolarité annuelle (FCFA)',
+      'Total annuel (FCFA)',
+      'Tranche 1',
+      'Échéance 1',
+      'Tranche 2',
+      'Échéance 2',
+      'Tranche 3',
+      'Échéance 3',
+      'Élèves actifs',
+      'Dernière modification',
+    ];
+    const rows = state.feeGrid.map((fee) => {
+      const activeCount = state.students.filter(
+        (s) => s.status !== 'archive' && s.cycle === fee.cycle && s.program === fee.program
+      ).length;
+      const t1 = fee.installments[0];
+      const t2 = fee.installments[1];
+      const t3 = fee.installments[2];
+      return [
+        fee.cycle,
+        fee.program,
+        fee.registrationFee,
+        fee.annualTuition,
+        fee.registrationFee + fee.annualTuition,
+        t1?.amount ?? 0,
+        t1?.dueDate ?? '',
+        t2?.amount ?? 0,
+        t2?.dueDate ?? '',
+        t3?.amount ?? 0,
+        t3?.dueDate ?? '',
+        activeCount,
+        fee.updatedAt ? formatDateTimeFr(fee.updatedAt) : 'Grille initiale',
+      ];
+    });
+    exportToCsv(`grille-tarifaire-jegama-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
   };
 
   const handleExportUnpaidCsv = () => {
@@ -3453,65 +3743,372 @@ export const ScolariteView: React.FC<{
 
       {/* TAB 4: GRILLE TARIFAIRE */}
       {activeTab === 'tarifs' && (
-        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-          <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex items-center justify-between">
-            <div>
-              <h2 className="font-display text-base font-bold text-slate-900 flex items-center gap-2">
-                <CreditCard className="w-4 h-4 text-blue-900 shrink-0" />
-                Grille tarifaire annuelle (FCFA)
-              </h2>
-              <p className="text-xs text-slate-500">
-                Frais d’inscription, scolarité annuelle et échéancier par cycle et programme.
-              </p>
+        <div className="space-y-5">
+          {/* KPI Summary Strip */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <div className="bg-white border border-slate-200 rounded-xl p-4">
+              <div className="text-xs text-slate-500">Formules configurées</div>
+              <div className="mt-1 font-mono text-xl font-bold tabular-nums text-slate-900">
+                {feeStats.count}
+              </div>
+              <div className="mt-1 text-[11px] text-slate-500">
+                Cycles × Programmes actifs
+              </div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-xl p-4">
+              <div className="text-xs text-slate-500">Total annuel moyen</div>
+              <div className="mt-1 font-mono text-xl font-bold tabular-nums text-blue-950">
+                {formatFcfa(feeStats.avg)}
+              </div>
+              <div className="mt-1 text-[11px] text-slate-500">
+                Inscription + scolarité
+              </div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-xl p-4">
+              <div className="text-xs text-slate-500">Fourchette tarifaire</div>
+              <div className="mt-1 font-mono text-sm sm:text-base font-bold tabular-nums text-slate-900">
+                {formatFcfa(feeStats.min)} – {formatFcfa(feeStats.max)}
+              </div>
+              <div className="mt-1 text-[11px] text-slate-500">
+                Maternelle à Lycée
+              </div>
+            </div>
+            <div className="bg-white border border-slate-200 rounded-xl p-4">
+              <div className="text-xs text-slate-500">Dernière mise à jour</div>
+              <div className="mt-1 font-mono text-sm font-semibold tabular-nums text-slate-900 truncate">
+                {feeStats.lastUpdatedAt ? formatDateTimeFr(feeStats.lastUpdatedAt) : 'Grille de rentrée'}
+              </div>
+              <div className="mt-1 text-[11px] text-slate-500 truncate">
+                {feeStats.lastUpdatedBy ? `Par ${feeStats.lastUpdatedBy}` : 'Base établissement'}
+              </div>
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[680px]">
-              <thead>
-                <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
-                  <th className="py-3 px-4 font-semibold">Cycle</th>
-                  <th className="py-3 px-4 font-semibold">Programme</th>
-                  <th className="py-3 px-4 font-semibold text-right">Inscription</th>
-                  <th className="py-3 px-4 font-semibold text-right">Scolarité annuelle</th>
-                  <th className="py-3 px-4 font-semibold text-right">Total annuel</th>
-                  <th className="py-3 px-4 font-semibold">Tranches</th>
-                  <th className="py-3 px-4 font-semibold text-right">Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {state.feeGrid.map((fee) => (
-                  <tr key={fee.id} className="hover:bg-slate-50">
-                    <td className="py-3 px-4 font-semibold text-slate-900">{fee.cycle}</td>
-                    <td className="py-3 px-4 text-slate-700">{fee.program}</td>
-                    <td className="py-3 px-4 text-right font-mono tabular-nums text-slate-700">
-                      {formatFcfa(fee.registrationFee)}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono tabular-nums text-slate-700">
-                      {formatFcfa(fee.annualTuition)}
-                    </td>
-                    <td className="py-3 px-4 text-right font-mono font-bold tabular-nums text-blue-950">
-                      {formatFcfa(fee.registrationFee + fee.annualTuition)}
-                    </td>
-                    <td className="py-3 px-4 text-xs text-slate-600 font-mono">
-                      {fee.installments.map((t) => formatFcfa(t.amount)).join(' / ')}
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      {canModifyScolarite && !isReadOnly ? (
-                        <button
-                          type="button"
-                          onClick={() => setEditingFee(fee)}
-                          className="px-2.5 py-1 text-xs font-medium text-slate-700 border border-slate-200 rounded hover:bg-slate-100"
-                        >
-                          Modifier
-                        </button>
-                      ) : (
-                        <span className="text-xs text-slate-400">Lecture seule</span>
-                      )}
-                    </td>
-                  </tr>
+
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-4 sm:px-6 py-4 border-b border-slate-200 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div>
+                <h2 className="font-display text-base font-bold text-slate-900 flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-blue-900 shrink-0" />
+                  Grille tarifaire annuelle (FCFA)
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Frais d’inscription, scolarité annuelle, échéancier des tranches et mise à jour globale.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportFeeGridCsv}
+                  className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  Exporter CSV
+                </button>
+                {canModifyScolarite && !isReadOnly && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => openBulkFeeModal('direct')}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-950 border border-blue-200 bg-blue-50/80 hover:bg-blue-100 rounded-lg whitespace-nowrap shrink-0"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      Édition rapide
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => openBulkFeeModal('adjust')}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg whitespace-nowrap shrink-0"
+                    >
+                      <Settings2 className="w-3.5 h-3.5" />
+                      Mise à jour globale
+                    </button>
+                    <button
+                      type="button"
+                      onClick={openCreateFeeModal}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-[#0B1933] bg-[#E5A923] hover:bg-[#d89b18] rounded-lg whitespace-nowrap shrink-0"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Nouveau tarif
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Filter Toolbar */}
+            <div className="px-4 sm:px-6 py-3 border-b border-slate-100 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg self-start">
+                {(['all', ...PROGRAMS] as const).map((prog) => (
+                  <button
+                    key={prog}
+                    type="button"
+                    onClick={() => setFeeProgramFilter(prog)}
+                    className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                      feeProgramFilter === prog
+                        ? 'bg-white text-slate-900 shadow-sm'
+                        : 'text-slate-600 hover:text-slate-900'
+                    }`}
+                  >
+                    {prog === 'all' ? 'Tous programmes' : `Programme ${prog}`}
+                  </button>
                 ))}
-              </tbody>
-            </table>
+              </div>
+              <div className="relative w-full sm:w-64">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={feeSearch}
+                  onChange={(e) => setFeeSearch(e.target.value)}
+                  placeholder="Filtrer par cycle ou programme…"
+                  className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg"
+                />
+              </div>
+            </div>
+
+            {/* Mobile Cards */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {filteredFeeGrid.map((fee) => {
+                const total = fee.registrationFee + fee.annualTuition;
+                const instSum = fee.installments.reduce((s, t) => s + t.amount, 0);
+                const gap = total - instSum;
+                const activeCount = state.students.filter(
+                  (s) => s.status !== 'archive' && s.cycle === fee.cycle && s.program === fee.program
+                ).length;
+                return (
+                  <div key={fee.id} className="p-4 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="font-semibold text-sm text-slate-900">
+                          {fee.cycle} · {fee.program}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-0.5 font-mono tabular-nums">
+                          {activeCount} élève(s) actif(s)
+                          {fee.updatedAt ? ` · MAJ ${formatDateFr(fee.updatedAt)}` : ''}
+                        </div>
+                      </div>
+                      <div className="text-right font-mono font-bold text-sm tabular-nums text-blue-950">
+                        {formatFcfa(total)}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-xs bg-slate-50 rounded-lg p-2.5 border border-slate-200">
+                      <div>
+                        <span className="text-slate-500 block">Inscription</span>
+                        <span className="font-mono font-semibold tabular-nums text-slate-900">
+                          {formatFcfa(fee.registrationFee)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block">Scolarité annuelle</span>
+                        <span className="font-mono font-semibold tabular-nums text-slate-900">
+                          {formatFcfa(fee.annualTuition)}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1 text-xs">
+                      {fee.installments.map((inst, idx) => (
+                        <div
+                          key={`${fee.id}-m-${idx}`}
+                          className="flex items-center justify-between text-slate-600"
+                        >
+                          <span className="truncate pr-2">
+                            {inst.label} · <span className="font-mono">{formatDateFr(inst.dueDate)}</span>
+                          </span>
+                          <span className="font-mono tabular-nums font-medium text-slate-900 shrink-0">
+                            {formatFcfa(inst.amount)}
+                          </span>
+                        </div>
+                      ))}
+                      {gap !== 0 && (
+                        <div className="text-[11px] font-medium text-amber-700">
+                          Écart échéancier : {formatFcfa(Math.abs(gap))}
+                        </div>
+                      )}
+                    </div>
+
+                    {canModifyScolarite && !isReadOnly && (
+                      <div className="flex items-center justify-end gap-2 pt-1">
+                        {confirmDeleteFeeId === fee.id ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteFee(fee.id)}
+                              disabled={busy}
+                              className="px-2.5 py-1.5 text-xs font-semibold text-white bg-red-600 rounded-lg"
+                            >
+                              Confirmer suppression
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteFeeId(null)}
+                              className="px-2.5 py-1.5 text-xs text-slate-600"
+                            >
+                              Annuler
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            {activeCount === 0 && state.feeGrid.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteFeeId(fee.id)}
+                                className="px-2.5 py-1.5 text-xs text-red-700 border border-red-200 rounded-lg hover:bg-red-50"
+                              >
+                                Supprimer
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => openEditFeeModal(fee)}
+                              className="px-3 py-1.5 text-xs font-semibold text-slate-800 border border-slate-200 rounded-lg hover:bg-slate-100"
+                            >
+                              Modifier tarif & tranches
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Desktop Spreadsheet Table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm min-w-[820px]">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
+                    <th className="py-3 px-4 font-semibold">Cycle & Programme</th>
+                    <th className="py-3 px-4 font-semibold text-right">Inscription</th>
+                    <th className="py-3 px-4 font-semibold text-right">Scolarité annuelle</th>
+                    <th className="py-3 px-4 font-semibold text-right">Total annuel</th>
+                    <th className="py-3 px-4 font-semibold">Échéancier des tranches</th>
+                    <th className="py-3 px-4 font-semibold text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredFeeGrid.map((fee) => {
+                    const total = fee.registrationFee + fee.annualTuition;
+                    const instSum = fee.installments.reduce((s, t) => s + t.amount, 0);
+                    const gap = total - instSum;
+                    const activeCount = state.students.filter(
+                      (s) =>
+                        s.status !== 'archive' &&
+                        s.cycle === fee.cycle &&
+                        s.program === fee.program
+                    ).length;
+
+                    return (
+                      <tr key={fee.id} className="hover:bg-slate-50/90 align-top">
+                        <td className="py-3.5 px-4">
+                          <div className="font-semibold text-slate-900">{fee.cycle}</div>
+                          <div className="text-xs text-slate-500 mt-0.5">
+                            Programme {fee.program} ·{' '}
+                            <span className="font-mono tabular-nums">{activeCount} élève(s)</span>
+                          </div>
+                          {fee.updatedAt && (
+                            <div className="text-[11px] text-slate-400 font-mono tabular-nums mt-0.5">
+                              MAJ {formatDateFr(fee.updatedAt)}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono tabular-nums text-slate-700 whitespace-nowrap">
+                          {formatFcfa(fee.registrationFee)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono tabular-nums text-slate-700 whitespace-nowrap">
+                          {formatFcfa(fee.annualTuition)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold tabular-nums text-blue-950 whitespace-nowrap">
+                          {formatFcfa(total)}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <div className="space-y-1 text-xs">
+                            {fee.installments.map((t, idx) => (
+                              <div
+                                key={`${fee.id}-${idx}`}
+                                className="flex items-center justify-between gap-4 text-slate-600"
+                              >
+                                <span className="truncate">
+                                  {t.label}{' '}
+                                  <span className="text-slate-400 font-mono">
+                                    ({formatDateFr(t.dueDate)})
+                                  </span>
+                                </span>
+                                <span className="font-mono tabular-nums text-slate-800 shrink-0">
+                                  {formatFcfa(t.amount)}
+                                </span>
+                              </div>
+                            ))}
+                            {gap !== 0 && (
+                              <div className="text-[11px] font-medium text-amber-700 pt-0.5">
+                                Écart vs total : {formatFcfa(Math.abs(gap))}
+                              </div>
+                            )}
+                          </div>
+                        </td>
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                          {canModifyScolarite && !isReadOnly ? (
+                            <div className="inline-flex items-center gap-1.5">
+                              {confirmDeleteFeeId === fee.id ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    disabled={busy}
+                                    onClick={() => handleDeleteFee(fee.id)}
+                                    className="px-2.5 py-1 text-xs font-semibold text-white bg-red-600 rounded hover:bg-red-700"
+                                  >
+                                    Confirmer
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setConfirmDeleteFeeId(null)}
+                                    className="px-2 py-1 text-xs text-slate-600 hover:text-slate-900"
+                                  >
+                                    Annuler
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditFeeModal(fee)}
+                                    className="px-2.5 py-1 text-xs font-medium text-slate-800 border border-slate-200 rounded hover:bg-slate-100"
+                                  >
+                                    Modifier
+                                  </button>
+                                  {activeCount === 0 && state.feeGrid.length > 1 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setConfirmDeleteFeeId(fee.id)}
+                                      title="Supprimer cette formule inutilisée"
+                                      aria-label="Supprimer cette formule"
+                                      className="p-1.5 text-slate-500 hover:text-red-700 border border-slate-200 rounded hover:bg-red-50"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-slate-400">Lecture seule</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {filteredFeeGrid.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-8 px-4 text-center text-xs text-slate-500">
+                        Aucune formule tarifaire ne correspond à ce filtre.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}
@@ -4741,29 +5338,87 @@ export const ScolariteView: React.FC<{
         </div>
       )}
 
-      {/* MODAL: EDIT FEE */}
+      {/* MODAL: EDIT OR CREATE FEE */}
       {editingFee && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <form
             onSubmit={handleSaveFee}
-            className="bg-white border border-slate-200 rounded-xl max-w-md w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-4 my-auto"
+            className="bg-white border border-slate-200 rounded-xl max-w-2xl w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-5 my-auto"
           >
-            <h3 className="font-display text-lg font-bold text-slate-900">
-              Tarif · {editingFee.cycle} ({editingFee.program})
-            </h3>
-            <div className="space-y-3">
+            <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
+              <div>
+                <h3 className="font-display text-lg font-bold text-slate-900">
+                  {feeModalMode === 'create'
+                    ? 'Nouvelle formule tarifaire'
+                    : `Mettre à jour · ${editingFee.cycle} (${editingFee.program})`}
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Modifiez les frais d’inscription, la scolarité annuelle et l’échéancier des tranches.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingFee(null)}
+                className="text-xs text-slate-500 hover:text-slate-900"
+              >
+                Fermer
+              </button>
+            </div>
+
+            {feeModalMode === 'create' && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Cycle</label>
+                  <select
+                    value={editingFee.cycle}
+                    onChange={(e) =>
+                      setEditingFee({ ...editingFee, cycle: e.target.value as SchoolCycle })
+                    }
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+                  >
+                    {CYCLES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Programme
+                  </label>
+                  <select
+                    value={editingFee.program}
+                    onChange={(e) =>
+                      setEditingFee({ ...editingFee, program: e.target.value as SchoolProgram })
+                    }
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+                  >
+                    {PROGRAMS.map((p) => (
+                      <option key={p} value={p}>
+                        Programme {p}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
                   Frais d’inscription (FCFA)
                 </label>
                 <input
                   type="number"
+                  min={0}
+                  step={500}
                   required
                   value={editingFee.registrationFee}
                   onChange={(e) =>
                     setEditingFee({ ...editingFee, registrationFee: Number(e.target.value) })
                   }
-                  className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+                  className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-lg"
                 />
               </div>
               <div>
@@ -4772,29 +5427,528 @@ export const ScolariteView: React.FC<{
                 </label>
                 <input
                   type="number"
+                  min={0}
+                  step={500}
                   required
                   value={editingFee.annualTuition}
                   onChange={(e) =>
                     setEditingFee({ ...editingFee, annualTuition: Number(e.target.value) })
                   }
-                  className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+                  className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-lg"
                 />
               </div>
+              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 flex flex-col justify-center">
+                <span className="text-[11px] font-medium text-slate-500">Total annuel calculé</span>
+                <span className="font-mono text-base font-bold tabular-nums text-blue-950">
+                  {formatFcfa(editingFee.registrationFee + editingFee.annualTuition)}
+                </span>
+              </div>
             </div>
+
+            {/* Installments Schedule Editor */}
+            <div className="space-y-3 pt-2 border-t border-slate-200">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-xs font-bold text-slate-900">
+                    Échéancier des tranches de paiement
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    Sert de référence aux encaissements Caisse et au suivi des retards en Recouvrement.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditingFee({
+                        ...editingFee,
+                        installments: distributeFeeInstallments(
+                          editingFee.registrationFee,
+                          editingFee.annualTuition,
+                          editingFee.installments,
+                          500
+                        ),
+                      })
+                    }
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-blue-900 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 whitespace-nowrap shrink-0"
+                  >
+                    <RefreshCw className="w-3 h-3" />
+                    Répartir automatiquement
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setEditingFee({
+                        ...editingFee,
+                        installments: [
+                          ...editingFee.installments,
+                          {
+                            label: `${editingFee.installments.length + 1}ème Tranche`,
+                            amount: 0,
+                            dueDate: '2027-05-15',
+                          },
+                        ],
+                      })
+                    }
+                    className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 whitespace-nowrap shrink-0"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Ajouter tranche
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {editingFee.installments.map((inst, idx) => (
+                  <div
+                    key={`edit-inst-${idx}`}
+                    className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center p-2.5 rounded-lg border border-slate-200 bg-slate-50/70"
+                  >
+                    <div className="sm:col-span-5">
+                      <label className="block text-[11px] text-slate-500 mb-0.5">Libellé</label>
+                      <input
+                        type="text"
+                        required
+                        value={inst.label}
+                        onChange={(e) => {
+                          const next = [...editingFee.installments];
+                          next[idx] = { ...next[idx], label: e.target.value };
+                          setEditingFee({ ...editingFee, installments: next });
+                        }}
+                        className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-300 rounded-md"
+                      />
+                    </div>
+                    <div className="sm:col-span-3">
+                      <label className="block text-[11px] text-slate-500 mb-0.5">
+                        Montant (FCFA)
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        step={500}
+                        required
+                        value={inst.amount}
+                        onChange={(e) => {
+                          const next = [...editingFee.installments];
+                          next[idx] = { ...next[idx], amount: Number(e.target.value) };
+                          setEditingFee({ ...editingFee, installments: next });
+                        }}
+                        className="w-full px-2.5 py-1.5 text-xs font-mono tabular-nums bg-white border border-slate-300 rounded-md"
+                      />
+                    </div>
+                    <div className="sm:col-span-3">
+                      <label className="block text-[11px] text-slate-500 mb-0.5">
+                        Date d’échéance
+                      </label>
+                      <input
+                        type="date"
+                        required
+                        value={inst.dueDate}
+                        onChange={(e) => {
+                          const next = [...editingFee.installments];
+                          next[idx] = { ...next[idx], dueDate: e.target.value };
+                          setEditingFee({ ...editingFee, installments: next });
+                        }}
+                        className="w-full px-2.5 py-1.5 text-xs font-mono tabular-nums bg-white border border-slate-300 rounded-md"
+                      />
+                    </div>
+                    <div className="sm:col-span-1 flex justify-end sm:pt-4">
+                      {editingFee.installments.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const next = editingFee.installments.filter((_, i) => i !== idx);
+                            setEditingFee({ ...editingFee, installments: next });
+                          }}
+                          aria-label="Supprimer cette tranche"
+                          className="p-1.5 text-slate-400 hover:text-red-600 rounded hover:bg-red-50"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {(() => {
+                const expectedTotal = editingFee.registrationFee + editingFee.annualTuition;
+                const instTotal = editingFee.installments.reduce((s, i) => s + (i.amount || 0), 0);
+                const diff = expectedTotal - instTotal;
+                return (
+                  <div
+                    className={`p-3 rounded-lg border text-xs flex flex-wrap items-center justify-between gap-2 ${
+                      diff === 0
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                        : 'bg-amber-50 border-amber-200 text-amber-900'
+                    }`}
+                  >
+                    <span>
+                      Somme des tranches :{' '}
+                      <strong className="font-mono tabular-nums">{formatFcfa(instTotal)}</strong> sur{' '}
+                      <strong className="font-mono tabular-nums">{formatFcfa(expectedTotal)}</strong>
+                    </span>
+                    {diff === 0 ? (
+                      <span className="inline-flex items-center gap-1 font-semibold">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Échéancier équilibré
+                      </span>
+                    ) : (
+                      <span className="font-semibold font-mono tabular-nums">
+                        Écart : {diff > 0 ? `+${formatFcfa(diff)}` : `-${formatFcfa(Math.abs(diff))}`}
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
+            </div>
+
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
               <button
                 type="button"
                 onClick={() => setEditingFee(null)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600"
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900"
               >
                 Annuler
               </button>
               <button
                 type="submit"
                 disabled={busy}
-                className="px-4 py-2 text-xs font-semibold text-white bg-blue-900 rounded-lg"
+                className="px-5 py-2 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg"
               >
-                Enregistrer
+                {feeModalMode === 'create' ? 'Créer la formule' : 'Enregistrer les tarifs'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* MODAL: BULK FEE GRID UPDATE */}
+      {showBulkFeeModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <form
+            onSubmit={handleBulkFeeSubmit}
+            className="bg-white border border-slate-200 rounded-xl max-w-4xl w-full max-h-[92vh] overflow-y-auto p-5 sm:p-6 space-y-5 my-auto"
+          >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
+              <div>
+                <h3 className="font-display text-lg font-bold text-slate-900">
+                  Mise à jour globale de la grille tarifaire
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Révisez l’ensemble des tarifs en pourcentage, en montant fixe ou via édition matricielle directe.
+                </p>
+              </div>
+              <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-lg self-start">
+                <button
+                  type="button"
+                  onClick={() => setBulkFeeMode('adjust')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md whitespace-nowrap ${
+                    bulkFeeMode === 'adjust'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Révision % / Montant
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBulkFeeMode('direct')}
+                  className={`px-3 py-1.5 text-xs font-semibold rounded-md whitespace-nowrap ${
+                    bulkFeeMode === 'direct'
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Tableau multi-lignes
+                </button>
+              </div>
+            </div>
+
+            {bulkFeeMode === 'adjust' ? (
+              <div className="space-y-4">
+                {/* Parameters */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Mode d’ajustement
+                    </label>
+                    <select
+                      value={bulkAdjustType}
+                      onChange={(e) => setBulkAdjustType(e.target.value as 'percent' | 'fixed')}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white"
+                    >
+                      <option value="percent">Pourcentage (%)</option>
+                      <option value="fixed">Montant fixe (FCFA)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Variation Inscription ({bulkAdjustType === 'percent' ? '%' : 'FCFA'})
+                    </label>
+                    <input
+                      type="number"
+                      step={bulkAdjustType === 'percent' ? '0.5' : '500'}
+                      value={bulkRegDelta}
+                      onChange={(e) => setBulkRegDelta(Number(e.target.value))}
+                      className="w-full px-3 py-2 text-xs font-mono tabular-nums border border-slate-300 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Variation Scolarité ({bulkAdjustType === 'percent' ? '%' : 'FCFA'})
+                    </label>
+                    <input
+                      type="number"
+                      step={bulkAdjustType === 'percent' ? '0.5' : '500'}
+                      value={bulkTuitionDelta}
+                      onChange={(e) => setBulkTuitionDelta(Number(e.target.value))}
+                      className="w-full px-3 py-2 text-xs font-mono tabular-nums border border-slate-300 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Arrondi FCFA
+                    </label>
+                    <select
+                      value={bulkRoundTo}
+                      onChange={(e) => setBulkRoundTo(Number(e.target.value))}
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg bg-white"
+                    >
+                      <option value={500}>Multiple de 500 FCFA</option>
+                      <option value={1000}>Multiple de 1 000 FCFA</option>
+                      <option value={0}>Exact (1 FCFA)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Optional tranche due dates */}
+                <div className="p-3.5 rounded-lg border border-slate-200 bg-slate-50/70 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-xs font-semibold text-slate-800">
+                      Nouvelles dates d’échéance (optionnel — laisser vide pour conserver)
+                    </span>
+                    <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={bulkRebalanceInstallments}
+                        onChange={(e) => setBulkRebalanceInstallments(e.target.checked)}
+                        className="rounded border-slate-300"
+                      />
+                      Recalculer proportionnellement les tranches
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {[0, 1, 2].map((idx) => (
+                      <div key={`due-${idx}`}>
+                        <label className="block text-[11px] text-slate-500 mb-1">
+                          Échéance Tranche {idx + 1}
+                        </label>
+                        <input
+                          type="date"
+                          value={bulkDueDates[idx]}
+                          onChange={(e) => {
+                            const next: [string, string, string] = [...bulkDueDates] as [
+                              string,
+                              string,
+                              string,
+                            ];
+                            next[idx] = e.target.value;
+                            setBulkDueDates(next);
+                          }}
+                          className="w-full px-2.5 py-1.5 text-xs font-mono bg-white border border-slate-300 rounded-md"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Target Selector & Preview Table */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-slate-800">
+                      Aperçu avant / après ({bulkPreviewRows.length} formule(s) sélectionnée(s))
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setBulkFeeTargetIds(
+                          bulkFeeTargetIds.length === state.feeGrid.length
+                            ? []
+                            : state.feeGrid.map((f) => f.id)
+                        )
+                      }
+                      className="text-blue-900 font-semibold hover:underline"
+                    >
+                      {bulkFeeTargetIds.length === state.feeGrid.length
+                        ? 'Tout désélectionner'
+                        : 'Tout sélectionner'}
+                    </button>
+                  </div>
+
+                  <div className="overflow-x-auto border border-slate-200 rounded-lg max-h-64">
+                    <table className="w-full text-xs min-w-[600px]">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-left">
+                          <th className="py-2 px-3 w-8" />
+                          <th className="py-2 px-3 font-semibold">Cycle & Programme</th>
+                          <th className="py-2 px-3 font-semibold text-right">Total actuel</th>
+                          <th className="py-2 px-3 font-semibold text-right">Nouveau total</th>
+                          <th className="py-2 px-3 font-semibold text-right">Écart</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {state.feeGrid.map((fee) => {
+                          const checked = bulkFeeTargetIds.includes(fee.id);
+                          const preview = bulkPreviewRows.find((r) => r.before.id === fee.id);
+                          const oldTotal = fee.registrationFee + fee.annualTuition;
+                          return (
+                            <tr key={`bulk-prev-${fee.id}`} className="hover:bg-slate-50">
+                              <td className="py-2 px-3">
+                                <input
+                                  type="checkbox"
+                                  checked={checked}
+                                  onChange={() =>
+                                    setBulkFeeTargetIds((prev) =>
+                                      prev.includes(fee.id)
+                                        ? prev.filter((id) => id !== fee.id)
+                                        : [...prev, fee.id]
+                                    )
+                                  }
+                                />
+                              </td>
+                              <td className="py-2 px-3 font-medium text-slate-900">
+                                {fee.cycle} · {fee.program}
+                              </td>
+                              <td className="py-2 px-3 text-right font-mono tabular-nums text-slate-600">
+                                {formatFcfa(oldTotal)}
+                              </td>
+                              <td className="py-2 px-3 text-right font-mono font-bold tabular-nums text-blue-950">
+                                {preview ? formatFcfa(preview.newTotal) : '—'}
+                              </td>
+                              <td className="py-2 px-3 text-right font-mono tabular-nums">
+                                {preview ? (
+                                  <span
+                                    className={
+                                      preview.delta > 0
+                                        ? 'text-emerald-700 font-semibold'
+                                        : preview.delta < 0
+                                          ? 'text-amber-700 font-semibold'
+                                          : 'text-slate-400'
+                                    }
+                                  >
+                                    {preview.delta > 0 ? `+${formatFcfa(preview.delta)}` : formatFcfa(preview.delta)}
+                                  </span>
+                                ) : (
+                                  'Inchangé'
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-600">
+                    Modifiez directement les montants ci-dessous puis enregistrez toute la grille en une fois.
+                  </span>
+                  <label className="inline-flex items-center gap-2 text-slate-700 cursor-pointer shrink-0">
+                    <input
+                      type="checkbox"
+                      checked={bulkRebalanceInstallments}
+                      onChange={(e) => setBulkRebalanceInstallments(e.target.checked)}
+                    />
+                    Auto-répartir les tranches
+                  </label>
+                </div>
+                <div className="overflow-x-auto border border-slate-200 rounded-lg max-h-80">
+                  <table className="w-full text-xs min-w-[600px]">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-left">
+                        <th className="py-2.5 px-3 font-semibold">Formule</th>
+                        <th className="py-2.5 px-3 font-semibold text-right">Inscription (FCFA)</th>
+                        <th className="py-2.5 px-3 font-semibold text-right">Scolarité annuelle (FCFA)</th>
+                        <th className="py-2.5 px-3 font-semibold text-right">Total annuel</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {state.feeGrid.map((fee) => {
+                        const row = bulkDirectDraft[fee.id] || {
+                          registrationFee: fee.registrationFee,
+                          annualTuition: fee.annualTuition,
+                        };
+                        return (
+                          <tr key={`direct-${fee.id}`} className="hover:bg-slate-50">
+                            <td className="py-2 px-3 font-medium text-slate-900">
+                              {fee.cycle} · {fee.program}
+                            </td>
+                            <td className="py-2 px-3 text-right">
+                              <input
+                                type="number"
+                                min={0}
+                                step={500}
+                                value={row.registrationFee}
+                                onChange={(e) =>
+                                  setBulkDirectDraft((prev) => ({
+                                    ...prev,
+                                    [fee.id]: {
+                                      ...row,
+                                      registrationFee: Number(e.target.value),
+                                    },
+                                  }))
+                                }
+                                className="w-32 px-2 py-1 text-right font-mono tabular-nums border border-slate-300 rounded"
+                              />
+                            </td>
+                            <td className="py-2 px-3 text-right">
+                              <input
+                                type="number"
+                                min={0}
+                                step={500}
+                                value={row.annualTuition}
+                                onChange={(e) =>
+                                  setBulkDirectDraft((prev) => ({
+                                    ...prev,
+                                    [fee.id]: {
+                                      ...row,
+                                      annualTuition: Number(e.target.value),
+                                    },
+                                  }))
+                                }
+                                className="w-36 px-2 py-1 text-right font-mono tabular-nums border border-slate-300 rounded"
+                              />
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold tabular-nums text-blue-950">
+                              {formatFcfa(row.registrationFee + row.annualTuition)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setShowBulkFeeModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-900"
+              >
+                Annuler
+              </button>
+              <button
+                type="submit"
+                disabled={busy}
+                className="px-5 py-2 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg"
+              >
+                Appliquer la mise à jour globale
               </button>
             </div>
           </form>

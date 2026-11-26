@@ -98,6 +98,10 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeMenu, setActiveMenu] = useState<MenuKey>('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [requestedScolariteTab, setRequestedScolariteTab] = useState<{
+    tab: 'dossiers' | 'reinscriptions' | 'caisse' | 'recouvrement' | 'parents' | 'tarifs';
+    nonce: number;
+  } | null>(null);
 
   const fetchState = useCallback(async (user: SessionUser) => {
     setLoading(true);
@@ -611,6 +615,7 @@ export default function App() {
                           ? 'caisse'
                           : 'dossiers'
                   }
+                  requestedTab={requestedScolariteTab}
                   onOpenNotesValidation={() => setActiveMenu('notes')}
                   onRefresh={() => fetchState(session)}
                 />
@@ -662,6 +667,10 @@ export default function App() {
                   state={appState}
                   session={session}
                   onRefresh={() => fetchState(session)}
+                  onOpenFeeGrid={() => {
+                    setRequestedScolariteTab({ tab: 'tarifs', nonce: Date.now() });
+                    setActiveMenu('eleves');
+                  }}
                 />
               )}
             </>

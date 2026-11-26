@@ -5,10 +5,12 @@ import {
   buildReminderMessageText,
   buildTeacherPayslip,
   buildWhatsappLaunchUrl,
+  computeAdjustedFeeItem,
   computeStudentBalance,
   computeStudentRecoveryProfile,
   createPeriodsForYear,
   createSeedDatabase,
+  distributeFeeInstallments,
   ensureArchiveSeedData,
   ensureGradeWorkflowData,
   ensureRecouvrementData,
@@ -756,23 +758,231 @@ export async function handleLocalApiRequest<T>(
     return { student } as T;
   }
 
+  if (method === 'POST' && path === '/api/fee-grid/bulk-update') {
+    const actor = assertRole(db, session, ['scolarite', 'admin']);
+    const body = parseBody<{
+      mode?: 'adjust' | 'direct';
+      targetIds?: string[];
+      adjustType?: 'percent' | 'fixed';
+      registrationDelta?: number;
+      tuitionDelta?: number;
+      roundTo?: number;
+      dueDateOverrides?: string[];
+      rebalanceInstallments?: boolean;
+      items?: Array<{
+        id: string;
+        registrationFee: number;
+        annualTuition: number;
+        installments?: FeeGridItem['installments'];
+      }>;
+    }>(options);
+    const now = new Date().toISOString();
+    let updatedCount = 0;
+
+    if (body.mode === 'direct') {
+      const items = Array.isArray(body.items) ? body.items : [];
+      if (items.length === 0) {
+        throw new Error('Aucune ligne tarifaire fournie pour la mise à jour.');
+      }
+      for (const patch of items) {
+        const idx = db.feeGrid.findIndex((f) => f.id === patch.id);
+        if (idx < 0) continue;
+        const reg = Math.max(0, Math.round(Number(patch.registrationFee ?? db.feeGrid[idx].registrationFee)));
+        const tui = Math.max(0, Math.round(Number(patch.annualTuition ?? db.feeGrid[idx].annualTuition)));
+        const nextInst =
+          Array.isArray(patch.installments) && patch.installments.length > 0
+            ? patch.installments.map((inst, tIdx) => ({
+                label: (inst.label || `Tranche ${tIdx + 1}`).trim(),
+                amount: Math.max(0, Math.round(Number(inst.amount || 0))),
+                dueDate: (inst.dueDate || '2026-09-15').trim(),
+              }))
+            : distributeFeeInstallments(reg, tui, db.feeGrid[idx].installments);
+        db.feeGrid[idx] = {
+          ...db.feeGrid[idx],
+          registrationFee: reg,
+          annualTuition: tui,
+          installments: nextInst,
+          updatedAt: now,
+          updatedBy: actor.fullName,
+        };
+        updatedCount += 1;
+      }
+      addAuditLog(
+        db,
+        actor,
+        'Mise à jour globale grille tarifaire',
+        'Tarifs',
+        'bulk-direct',
+        `${updatedCount} formule(s) tarifaire(s) actualisée(s) en édition matricielle.`
+      );
+      await saveLocalDatabase(db);
+      return { updatedCount, feeGrid: db.feeGrid } as T;
+    }
+
+    const targetSet =
+      Array.isArray(body.targetIds) && body.targetIds.length > 0 ? new Set(body.targetIds) : null;
+    const adjustType = body.adjustType === 'fixed' ? 'fixed' : 'percent';
+    const registrationDelta = Number(body.registrationDelta || 0);
+    const tuitionDelta = Number(body.tuitionDelta || 0);
+    const roundTo = body.roundTo !== undefined ? Number(body.roundTo) : 500;
+    const rebalanceInstallments = body.rebalanceInstallments !== false;
+
+    db.feeGrid = db.feeGrid.map((fee) => {
+      if (targetSet && !targetSet.has(fee.id)) return fee;
+      const adjusted = computeAdjustedFeeItem(fee, {
+        adjustType,
+        registrationDelta,
+        tuitionDelta,
+        roundTo,
+        dueDateOverrides: body.dueDateOverrides,
+        rebalanceInstallments,
+      });
+      updatedCount += 1;
+      return {
+        ...adjusted,
+        updatedAt: now,
+        updatedBy: actor.fullName,
+      };
+    });
+
+    if (updatedCount === 0) {
+      throw new Error('Aucune formule ciblée pour la révision globale.');
+    }
+
+    addAuditLog(
+      db,
+      actor,
+      'Révision globale grille tarifaire',
+      'Tarifs',
+      'bulk-adjust',
+      `${updatedCount} formule(s) révisée(s) (${adjustType === 'percent' ? `${tuitionDelta >= 0 ? '+' : ''}${tuitionDelta}% scolarité` : `${tuitionDelta >= 0 ? '+' : ''}${tuitionDelta} FCFA scolarité`}).`
+    );
+    await saveLocalDatabase(db);
+    return { updatedCount, feeGrid: db.feeGrid } as T;
+  }
+
+  if (method === 'POST' && path === '/api/fee-grid') {
+    const actor = assertRole(db, session, ['scolarite', 'admin']);
+    const body = parseBody<Partial<FeeGridItem>>(options);
+    if (!body.cycle || !body.program) {
+      throw new Error('Le cycle et le programme sont requis.');
+    }
+    if (db.feeGrid.some((f) => f.cycle === body.cycle && f.program === body.program)) {
+      throw new Error(`Une formule tarifaire existe déjà pour ${body.cycle} (${body.program}).`);
+    }
+    const registrationFee = Math.max(0, Math.round(Number(body.registrationFee || 0)));
+    const annualTuition = Math.max(0, Math.round(Number(body.annualTuition || 0)));
+    const installments =
+      Array.isArray(body.installments) && body.installments.length > 0
+        ? body.installments.map((inst, tIdx) => ({
+            label: (inst.label || `Tranche ${tIdx + 1}`).trim(),
+            amount: Math.max(0, Math.round(Number(inst.amount || 0))),
+            dueDate: (inst.dueDate || '2026-09-15').trim(),
+          }))
+        : distributeFeeInstallments(registrationFee, annualTuition);
+
+    const now = new Date().toISOString();
+    const created: FeeGridItem = {
+      id: `fee-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      cycle: body.cycle,
+      program: body.program,
+      registrationFee,
+      annualTuition,
+      installments,
+      updatedAt: now,
+      updatedBy: actor.fullName,
+    };
+    db.feeGrid.push(created);
+    addAuditLog(
+      db,
+      actor,
+      'Création formule tarifaire',
+      'Tarifs',
+      created.id,
+      `Nouvelle formule ${created.cycle} (${created.program}) : Total ${(created.registrationFee + created.annualTuition).toLocaleString('fr-FR')} FCFA.`
+    );
+    await saveLocalDatabase(db);
+    return { feeGridItem: created } as T;
+  }
+
   const feeGridMatch = path.match(/^\/api\/fee-grid\/([^/]+)$/);
   if (method === 'PUT' && feeGridMatch) {
     const actor = assertRole(db, session, ['scolarite', 'admin']);
     const idx = db.feeGrid.findIndex((f) => f.id === feeGridMatch[1]);
     if (idx < 0) throw new Error('Grille tarifaire introuvable.');
+    const existing = db.feeGrid[idx];
     const body = parseBody<Partial<FeeGridItem>>(options);
-    db.feeGrid[idx] = { ...db.feeGrid[idx], ...body };
+    const nextCycle = body.cycle || existing.cycle;
+    const nextProgram = body.program || existing.program;
+    if (db.feeGrid.some((f, i) => i !== idx && f.cycle === nextCycle && f.program === nextProgram)) {
+      throw new Error(`Une formule existe déjà pour ${nextCycle} (${nextProgram}).`);
+    }
+    const regFee =
+      body.registrationFee !== undefined ? Number(body.registrationFee) : existing.registrationFee;
+    const tuition =
+      body.annualTuition !== undefined ? Number(body.annualTuition) : existing.annualTuition;
+    if (!Number.isFinite(regFee) || regFee < 0 || !Number.isFinite(tuition) || tuition < 0) {
+      throw new Error('Les montants tarifaires doivent être des nombres positifs.');
+    }
+    const nextInstallments =
+      Array.isArray(body.installments) && body.installments.length > 0
+        ? body.installments.map((inst, tIdx) => ({
+            label: (inst.label || `Tranche ${tIdx + 1}`).trim(),
+            amount: Math.max(0, Math.round(Number(inst.amount || 0))),
+            dueDate: (inst.dueDate || existing.installments[tIdx]?.dueDate || '2026-09-15').trim(),
+          }))
+        : existing.installments;
+
+    const now = new Date().toISOString();
+    db.feeGrid[idx] = {
+      ...existing,
+      cycle: nextCycle,
+      program: nextProgram,
+      registrationFee: Math.round(regFee),
+      annualTuition: Math.round(tuition),
+      installments: nextInstallments,
+      updatedAt: now,
+      updatedBy: actor.fullName,
+    };
     addAuditLog(
       db,
       actor,
       'Modification grille tarifaire',
       'Tarifs',
       db.feeGrid[idx].id,
-      `${db.feeGrid[idx].cycle} (${db.feeGrid[idx].program}) mis à jour.`
+      `${db.feeGrid[idx].cycle} (${db.feeGrid[idx].program}) : Inscription ${db.feeGrid[idx].registrationFee.toLocaleString('fr-FR')} FCFA, Scolarité ${db.feeGrid[idx].annualTuition.toLocaleString('fr-FR')} FCFA (${db.feeGrid[idx].installments.length} tranches).`
     );
     await saveLocalDatabase(db);
     return { feeGridItem: db.feeGrid[idx] } as T;
+  }
+
+  if (method === 'DELETE' && feeGridMatch) {
+    const actor = assertRole(db, session, ['scolarite', 'admin']);
+    const idx = db.feeGrid.findIndex((f) => f.id === feeGridMatch[1]);
+    if (idx < 0) throw new Error('Grille tarifaire introuvable.');
+    if (db.feeGrid.length <= 1) {
+      throw new Error('Au moins une formule tarifaire doit rester active.');
+    }
+    const target = db.feeGrid[idx];
+    const activeStudentsUsing = db.students.filter(
+      (s) => s.status !== 'archive' && s.cycle === target.cycle && s.program === target.program
+    );
+    if (activeStudentsUsing.length > 0) {
+      throw new Error(
+        `Suppression impossible : ${activeStudentsUsing.length} élève(s) actif(s) dépendent du tarif ${target.cycle} (${target.program}).`
+      );
+    }
+    db.feeGrid.splice(idx, 1);
+    addAuditLog(
+      db,
+      actor,
+      'Suppression formule tarifaire',
+      'Tarifs',
+      target.id,
+      `Formule supprimée : ${target.cycle} (${target.program}).`
+    );
+    await saveLocalDatabase(db);
+    return { deletedId: target.id } as T;
   }
 
   // --- CAISSE ---

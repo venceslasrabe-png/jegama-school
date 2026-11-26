@@ -10,6 +10,7 @@ import type {
   CycleHourlyRate,
   DashboardSummary,
   EvaluationPeriod,
+  FeeGridItem,
   ParentTutor,
   PayslipPaymentMethod,
   ReenrollmentDecision,
@@ -1041,6 +1042,119 @@ export function getFeeForReinscription(
     db.feeGrid.find((f) => f.cycle === cycle && f.program === program) ||
     db.feeGrid.find((f) => f.cycle === cycle);
   return fee?.installments?.[0]?.amount ?? fee?.registrationFee ?? 120000;
+}
+
+export function roundFcfaAmount(amount: number, roundTo = 500): number {
+  const safe = Math.max(0, Number.isFinite(amount) ? amount : 0);
+  if (!roundTo || roundTo <= 1) return Math.round(safe);
+  return Math.round(safe / roundTo) * roundTo;
+}
+
+export function distributeFeeInstallments(
+  registrationFee: number,
+  annualTuition: number,
+  existingInstallments?: FeeGridItem['installments'],
+  roundTo = 500
+): FeeGridItem['installments'] {
+  const reg = Math.max(0, Math.round(registrationFee || 0));
+  const tuition = Math.max(0, Math.round(annualTuition || 0));
+  const total = reg + tuition;
+
+  const base =
+    existingInstallments && existingInstallments.length > 0
+      ? existingInstallments
+      : [
+          { label: 'Inscription + 1ère Tranche', amount: 0, dueDate: '2026-09-15' },
+          { label: '2ème Tranche', amount: 0, dueDate: '2027-01-10' },
+          { label: '3ème Tranche', amount: 0, dueDate: '2027-04-15' },
+        ];
+
+  const count = base.length;
+  if (count === 1) {
+    return [{ ...base[0], amount: total }];
+  }
+
+  const annualShare = roundFcfaAmount(tuition / count, roundTo);
+  const result = base.map((inst, idx) => {
+    if (idx === 0) {
+      return { ...inst, amount: Math.min(total, reg + annualShare) };
+    }
+    return { ...inst, amount: annualShare };
+  });
+
+  const sumWithoutLast = result.slice(0, -1).reduce((acc, item) => acc + item.amount, 0);
+  result[result.length - 1] = {
+    ...result[result.length - 1],
+    amount: Math.max(0, total - sumWithoutLast),
+  };
+  return result;
+}
+
+export function computeAdjustedFeeItem(
+  fee: FeeGridItem,
+  options: {
+    adjustType: 'percent' | 'fixed';
+    registrationDelta: number;
+    tuitionDelta: number;
+    roundTo?: number;
+    dueDateOverrides?: string[];
+    rebalanceInstallments?: boolean;
+  }
+): FeeGridItem {
+  const roundTo = options.roundTo ?? 500;
+  const regDelta = Number(options.registrationDelta || 0);
+  const tuiDelta = Number(options.tuitionDelta || 0);
+
+  const nextRegRaw =
+    options.adjustType === 'percent'
+      ? fee.registrationFee * (1 + regDelta / 100)
+      : fee.registrationFee + regDelta;
+  const nextTuitionRaw =
+    options.adjustType === 'percent'
+      ? fee.annualTuition * (1 + tuiDelta / 100)
+      : fee.annualTuition + tuiDelta;
+
+  const nextRegistrationFee = roundFcfaAmount(nextRegRaw, roundTo);
+  const nextAnnualTuition = roundFcfaAmount(nextTuitionRaw, roundTo);
+
+  let nextInstallments = (fee.installments || []).map((inst, idx) => ({
+    ...inst,
+    dueDate:
+      options.dueDateOverrides && options.dueDateOverrides[idx]?.trim()
+        ? options.dueDateOverrides[idx].trim()
+        : inst.dueDate,
+  }));
+
+  if (options.rebalanceInstallments !== false) {
+    const oldTotal = fee.registrationFee + fee.annualTuition;
+    const nextTotal = nextRegistrationFee + nextAnnualTuition;
+    if (oldTotal > 0 && nextInstallments.length > 0 && nextInstallments.reduce((s, i) => s + i.amount, 0) > 0) {
+      const ratio = nextTotal / oldTotal;
+      nextInstallments = nextInstallments.map((inst) => ({
+        ...inst,
+        amount: roundFcfaAmount(inst.amount * ratio, roundTo),
+      }));
+      const sumWithoutLast = nextInstallments.slice(0, -1).reduce((s, i) => s + i.amount, 0);
+      nextInstallments[nextInstallments.length - 1] = {
+        ...nextInstallments[nextInstallments.length - 1],
+        amount: Math.max(0, nextTotal - sumWithoutLast),
+      };
+    } else {
+      nextInstallments = distributeFeeInstallments(
+        nextRegistrationFee,
+        nextAnnualTuition,
+        nextInstallments,
+        roundTo
+      );
+    }
+  }
+
+  return {
+    ...fee,
+    registrationFee: nextRegistrationFee,
+    annualTuition: nextAnnualTuition,
+    installments: nextInstallments,
+  };
 }
 
 export function suggestNextClassAndCycle(
