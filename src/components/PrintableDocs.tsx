@@ -9,6 +9,8 @@ import type {
   Grade,
   ParentTutor,
   Payment,
+  ReenrollmentDecision,
+  ReenrollmentRecord,
   SchoolClass,
   SchoolSettings,
   Student,
@@ -1465,6 +1467,253 @@ export const ReminderNoticeModal: React.FC<{
                 </div>
                 <div className="text-[11px] text-slate-500">
                   {settings.city}, le {todayDisplay}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const REENROLLMENT_DECISION_LABELS: Record<ReenrollmentDecision, string> = {
+  passage: 'Passage en classe supérieure',
+  redoublement: 'Maintien / Redoublement',
+  changement_cycle: 'Passage au cycle supérieur',
+  transfert_programme: 'Changement de programme',
+};
+
+export const ReinscriptionCertificateModal: React.FC<{
+  record: ReenrollmentRecord;
+  student: Student;
+  fromClass?: SchoolClass;
+  toClass?: SchoolClass;
+  parent?: ParentTutor;
+  settings: SchoolSettings;
+  onClose: () => void;
+}> = ({ record, student, fromClass, toClass, parent, settings, onClose }) => {
+  const docRef = React.useRef<HTMLDivElement>(null);
+  const [downloading, setDownloading] = React.useState(false);
+  const [downloadError, setDownloadError] = React.useState<string | null>(null);
+
+  const handleDownload = async () => {
+    if (!docRef.current || downloading) return;
+    setDownloading(true);
+    setDownloadError(null);
+    try {
+      await downloadElementAsPdf(
+        docRef.current,
+        `Attestation-Reinscription-${student.cardId}-${record.toAcademicYear}.pdf`,
+        { maxWidthMm: 186 }
+      );
+    } catch (err) {
+      setDownloadError(err instanceof Error ? err.message : 'Erreur lors du téléchargement.');
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      <div className="bg-white border border-slate-200 rounded-xl max-w-2xl w-full max-h-[94vh] flex flex-col shadow-lg overflow-hidden print-container my-auto">
+        <div className="no-print flex flex-wrap items-center justify-between gap-2 px-4 py-3 sm:px-6 sm:py-4 border-b border-slate-200 bg-slate-50 shrink-0">
+          <div className="min-w-0">
+            <h3 className="text-sm sm:text-base font-semibold text-slate-900 truncate">
+              Attestation de réinscription · {student.cardId}
+            </h3>
+            <p className="text-xs text-slate-500">
+              {student.lastName} {student.firstName} · Année {record.toAcademicYear}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={downloading}
+              onClick={handleDownload}
+              className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-2 text-xs font-semibold text-[#0B1933] bg-[#E5A923] hover:bg-[#d89b18] disabled:opacity-60 rounded-lg transition-colors whitespace-nowrap shrink-0"
+            >
+              <Download className="w-4 h-4" />
+              {downloading ? 'Téléchargement...' : 'Télécharger PDF'}
+            </button>
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-2 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg transition-colors whitespace-nowrap shrink-0"
+            >
+              <Printer className="w-4 h-4" />
+              Imprimer
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Fermer"
+              className="p-2 text-slate-500 hover:text-slate-900 rounded-lg hover:bg-slate-200/60 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {downloadError && (
+          <div className="no-print px-4 sm:px-6 py-2 bg-red-50 border-b border-red-200 text-xs text-red-700 shrink-0">
+            {downloadError}
+          </div>
+        )}
+
+        <div className="overflow-y-auto flex-1">
+          <div ref={docRef} className="p-4 sm:p-8 space-y-5 bg-white">
+            {/* Institutional Header */}
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 border-b-2 border-[#0B1933] pb-4">
+              <div className="flex items-center gap-3">
+                <img
+                  src={SCHOOL_EMBLEM_URL}
+                  alt="Logo JEGAMA SCHOOL"
+                  referrerPolicy="no-referrer"
+                  className="w-12 h-12 rounded object-contain border border-slate-200 p-1 shrink-0"
+                />
+                <div>
+                  <h2 className="text-base sm:text-lg font-bold text-[#0B1933]">{settings.schoolName}</h2>
+                  <p className="text-xs text-slate-600">
+                    {settings.address}, {settings.city} · {settings.country}
+                  </p>
+                  <p className="text-xs text-slate-500">Service de la Scolarité & Admissions</p>
+                </div>
+              </div>
+              <div className="sm:text-right">
+                <div className="text-xs font-bold uppercase tracking-wider text-[#0B1933]">
+                  Attestation de réinscription
+                </div>
+                <div className="text-xs font-mono font-bold text-blue-900 mt-1">
+                  Année {record.toAcademicYear}
+                </div>
+                <div className="text-[11px] font-mono text-slate-500 mt-0.5">
+                  Validée le {formatDateTimeFr(record.reinscritAt)}
+                </div>
+              </div>
+            </div>
+
+            {/* Student & Card Preservation */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 bg-slate-50 p-4 rounded-lg border border-slate-200 text-xs">
+              <StudentAvatar
+                photoUrl={student.photoUrl}
+                firstName={student.firstName}
+                lastName={student.lastName}
+                sizeClass="w-16 h-20"
+              />
+              <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3 w-full">
+                <div>
+                  <div className="text-slate-500 uppercase tracking-wide text-[11px]">Élève réinscrit(e)</div>
+                  <div className="font-bold text-slate-900 text-sm mt-0.5">
+                    {student.lastName} {student.firstName}
+                  </div>
+                  <div className="text-slate-600 mt-0.5">
+                    Né(e) le {formatDateFr(student.birthDate)} à {student.birthPlace}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-slate-500 uppercase tracking-wide text-[11px]">
+                    ID Carte conservé (RG-01)
+                  </div>
+                  <div className="font-mono font-bold text-[#0B1933] text-sm mt-0.5">
+                    {record.cardId}
+                  </div>
+                  <div className="text-slate-600 mt-0.5">
+                    Décision : <span className="font-semibold text-slate-900">{REENROLLMENT_DECISION_LABELS[record.decision]}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Academic Transition Table */}
+            <div className="border border-slate-200 rounded-lg overflow-hidden">
+              <table className="w-full text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-100 border-b border-slate-200 text-left text-slate-600">
+                    <th className="py-2.5 px-3 font-semibold">Rubrique</th>
+                    <th className="py-2.5 px-3 font-semibold">Situation antérieure</th>
+                    <th className="py-2.5 px-3 font-semibold">Nouvelle affectation</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  <tr>
+                    <td className="py-2.5 px-3 font-medium text-slate-700">Année scolaire</td>
+                    <td className="py-2.5 px-3 font-mono text-slate-600">{record.fromAcademicYear}</td>
+                    <td className="py-2.5 px-3 font-mono font-bold text-[#0B1933]">{record.toAcademicYear}</td>
+                  </tr>
+                  <tr>
+                    <td className="py-2.5 px-3 font-medium text-slate-700">Cycle & Programme</td>
+                    <td className="py-2.5 px-3 text-slate-600">
+                      {record.fromCycle} · {record.fromProgram}
+                    </td>
+                    <td className="py-2.5 px-3 font-semibold text-slate-900">
+                      {record.toCycle} · {record.toProgram}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="py-2.5 px-3 font-medium text-slate-700">Classe</td>
+                    <td className="py-2.5 px-3 text-slate-600">
+                      {fromClass?.name || 'Non affecté'}
+                    </td>
+                    <td className="py-2.5 px-3 font-bold text-blue-900">
+                      {toClass?.name || 'À affecter'}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Parent & Caisse Box */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div className="border border-slate-200 rounded-lg p-3.5 space-y-1">
+                <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                  Parent / Tuteur légal vérifié
+                </div>
+                <div className="font-bold text-slate-900">{parent?.fullName || '—'}</div>
+                <div className="font-mono text-slate-700">
+                  {record.parentPhone || parent?.phone || '—'}
+                </div>
+                {(record.parentEmail || parent?.email) && (
+                  <div className="text-slate-600">{record.parentEmail || parent?.email}</div>
+                )}
+              </div>
+              <div className="bg-[#0B1933] text-white rounded-lg p-3.5 space-y-1.5">
+                <div className="text-[11px] uppercase tracking-wide text-slate-300">
+                  Situation Caisse & Frais
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-slate-300">Solde antérieur :</span>
+                  <span className="font-mono font-semibold tabular-nums">
+                    {formatFcfa(record.previousBalanceFcfa)}
+                  </span>
+                </div>
+                <div className="flex items-baseline justify-between">
+                  <span className="text-slate-300">Frais réinscription notifiés :</span>
+                  <span className="font-mono font-bold text-[#E5A923] tabular-nums">
+                    {formatFcfa(record.reinscriptionFeeFcfa)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {record.notes && (
+              <div className="text-xs text-slate-600 bg-slate-50 border border-slate-200 rounded-lg p-3">
+                <span className="font-semibold text-slate-800">Observations :</span> {record.notes}
+              </div>
+            )}
+
+            {/* Signatures */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 text-xs text-slate-600">
+              <div className="border border-slate-200 rounded-lg p-3.5 min-h-[72px] flex flex-col justify-between">
+                <div className="font-semibold text-slate-800">Visa du Parent / Tuteur</div>
+                <div className="text-[11px] text-slate-400">Date et signature</div>
+              </div>
+              <div className="border border-slate-200 rounded-lg p-3.5 min-h-[72px] flex flex-col justify-between">
+                <div className="font-semibold text-slate-800">
+                  Service Scolarité · {record.reinscritBy}
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  {settings.city}, le {formatDateFr(record.reinscritAt)}
                 </div>
               </div>
             </div>

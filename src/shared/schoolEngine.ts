@@ -12,9 +12,13 @@ import type {
   EvaluationPeriod,
   ParentTutor,
   PayslipPaymentMethod,
+  ReenrollmentDecision,
+  ReenrollmentRecord,
   ReminderChannel,
   ReminderStatus,
+  SchoolCycle,
   SchoolDatabase,
+  SchoolProgram,
   Student,
   StudentFollowUpPlan,
   StudentInstallmentBreakdown,
@@ -1020,6 +1024,110 @@ export function ensureRecouvrementData(db: SchoolDatabase): SchoolDatabase {
   return db;
 }
 
+const CYCLE_ORDER: SchoolCycle[] = [
+  'Maternelle',
+  'Primaire',
+  'Collège',
+  'Lycée Général',
+  'Lycée Technique',
+];
+
+export function getFeeForReinscription(
+  db: Pick<SchoolDatabase, 'feeGrid'>,
+  cycle: SchoolCycle,
+  program: SchoolProgram
+): number {
+  const fee =
+    db.feeGrid.find((f) => f.cycle === cycle && f.program === program) ||
+    db.feeGrid.find((f) => f.cycle === cycle);
+  return fee?.installments?.[0]?.amount ?? fee?.registrationFee ?? 120000;
+}
+
+export function suggestNextClassAndCycle(
+  db: Pick<SchoolDatabase, 'classes'>,
+  student: Pick<Student, 'cycle' | 'program' | 'classId'>,
+  decision: ReenrollmentDecision = 'passage'
+): { nextCycle: SchoolCycle; nextProgram: SchoolProgram; nextClassId: string | null } {
+  if (decision === 'redoublement') {
+    return {
+      nextCycle: student.cycle,
+      nextProgram: student.program,
+      nextClassId: student.classId,
+    };
+  }
+
+  let nextCycle: SchoolCycle = student.cycle;
+  if (decision === 'passage' || decision === 'changement_cycle') {
+    const idx = CYCLE_ORDER.indexOf(student.cycle);
+    if (student.cycle === 'Maternelle') {
+      nextCycle = 'Primaire';
+    } else if (student.cycle === 'Primaire') {
+      const cls = db.classes.find((c) => c.id === student.classId);
+      if (!cls || cls.name.toUpperCase().includes('CM2')) {
+        nextCycle = 'Collège';
+      }
+    } else if (student.cycle === 'Collège') {
+      const cls = db.classes.find((c) => c.id === student.classId);
+      if (!cls || cls.name.toUpperCase().includes('3')) {
+        nextCycle = 'Lycée Général';
+      }
+    } else if (decision === 'changement_cycle' && idx >= 0 && idx < CYCLE_ORDER.length - 1) {
+      nextCycle = CYCLE_ORDER[idx + 1];
+    }
+  }
+
+  const matchingExact = db.classes.find(
+    (c) => c.cycle === nextCycle && c.program === student.program
+  );
+  const matchingCycle = db.classes.find((c) => c.cycle === nextCycle);
+  const nextProgram = matchingExact ? student.program : matchingCycle?.program || student.program;
+  const nextClassId = matchingExact?.id || matchingCycle?.id || student.classId || null;
+
+  return { nextCycle, nextProgram, nextClassId };
+}
+
+export function ensureReinscriptionData(db: SchoolDatabase): SchoolDatabase {
+  if (!Array.isArray(db.reenrollments)) {
+    db.reenrollments = [];
+  }
+  if (!db.counters) {
+    db.counters = { cardSeq: 8, receiptSeq: 6 };
+  }
+  if (!db.counters.reinscriptionsSeeded) {
+    db.counters.reinscriptionsSeeded = true;
+    if (db.reenrollments.length === 0 && Array.isArray(db.students)) {
+      const prevYear = '2025-2026';
+      const reinscritStudents = db.students.filter((s) => s.status === 'reinscrit');
+      reinscritStudents.forEach((stu, idx) => {
+        const parent = db.parents.find((p) => p.id === stu.parentId);
+        const feeAmount = getFeeForReinscription(db, stu.cycle, stu.program);
+        db.reenrollments!.push({
+          id: `reins-seed-${idx + 1}`,
+          studentId: stu.id,
+          cardId: stu.cardId,
+          fromAcademicYear: prevYear,
+          toAcademicYear: stu.academicYear || db.settings.currentAcademicYear,
+          fromCycle: stu.cycle,
+          toCycle: stu.cycle,
+          fromProgram: stu.program,
+          toProgram: stu.program,
+          fromClassId: stu.classId,
+          toClassId: stu.classId,
+          decision: 'passage',
+          previousBalanceFcfa: 0,
+          reinscriptionFeeFcfa: feeAmount,
+          parentPhone: parent?.phone || '',
+          parentEmail: parent?.email || '',
+          notes: `Réinscription ${stu.academicYear} validée sur dossier conservé (${stu.cardId}).`,
+          reinscritAt: stu.createdAt || isoDaysAgo(5, 9, 30).iso,
+          reinscritBy: 'Mme Clarisse Mavoungou',
+        });
+      });
+    }
+  }
+  return db;
+}
+
 export function createSeedDatabase(): SchoolDatabase {
   const today = getTodayStr();
   const y1 = isoDaysAgo(1, 7, 25);
@@ -1030,7 +1138,7 @@ export function createSeedDatabase(): SchoolDatabase {
   const seedHourLogs = createSeedTeacherHourLogs(seedTeachers);
   const seedPayslips = createSeedTeacherPayslips(seedTeachers, seedHourLogs);
 
-  return {
+  const seedDb: SchoolDatabase = {
     settings: {
       schoolName: 'JEGAMA SCHOOL',
       address: 'Mpita-Wharf',
@@ -1612,6 +1720,7 @@ export function createSeedDatabase(): SchoolDatabase {
       },
     ],
     collectionReminders: createSeedCollectionReminders(),
+    reenrollments: [],
     attendanceLogs: [
       {
         id: 'att-1',
@@ -1935,8 +2044,11 @@ export function createSeedDatabase(): SchoolDatabase {
       archivesSeeded: true,
       gradeWorkflowSeeded: true,
       collectionRemindersSeeded: true,
+      reinscriptionsSeeded: false,
     },
   };
+
+  return ensureReinscriptionData(seedDb);
 }
 
 export function addAuditLog(
@@ -2588,6 +2700,8 @@ export function computeDashboardSummary(db: SchoolDatabase): DashboardSummary {
     overdueStudentsCount,
     activeMoratoiresCount,
     pendingFollowUpsCount,
+    studentsToReinscrireCount: db.students.filter((s) => s.status === 'archive').length,
+    reinscritCount: db.students.filter((s) => s.status === 'reinscrit').length,
   };
 }
 
@@ -2803,6 +2917,7 @@ export function sanitizeDbForClient(db: SchoolDatabase, actor: ActorContext | nu
       paymentNotifications: [],
       payments: db.payments.filter((p) => myStudentIds.has(p.studentId)),
       collectionReminders: [],
+      reenrollments: (db.reenrollments || []).filter((r) => myStudentIds.has(r.studentId)),
       attendanceLogs: db.attendanceLogs.filter((a) => myStudentIds.has(a.studentId)),
       grades: db.grades.filter(
         (g) =>
@@ -2834,6 +2949,7 @@ export function sanitizeDbForClient(db: SchoolDatabase, actor: ActorContext | nu
     paymentNotifications: db.paymentNotifications,
     payments: db.payments,
     collectionReminders: db.collectionReminders || [],
+    reenrollments: db.reenrollments || [],
     attendanceLogs: db.attendanceLogs,
     grades: db.grades,
     bulletins: db.bulletins,

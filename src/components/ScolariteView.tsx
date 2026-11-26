@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowRight,
   Bell,
   CalendarClock,
   Camera,
@@ -10,10 +11,12 @@ import {
   Edit3,
   ExternalLink,
   FileText,
+  Layers,
   Mail,
   MessageSquare,
   PhoneCall,
   Plus,
+  Printer,
   RefreshCw,
   Search,
   Send,
@@ -30,6 +33,8 @@ import {
   computeStudentRecoveryProfile,
   evaluateStudentAutoFollowUp,
   getDefaultCollectionAutomation,
+  getFeeForReinscription,
+  suggestNextClassAndCycle,
 } from '../shared/schoolEngine';
 import type {
   CollectionAutomationSettings,
@@ -37,6 +42,8 @@ import type {
   FeeGridItem,
   ParentTutor,
   Payment,
+  ReenrollmentDecision,
+  ReenrollmentRecord,
   ReminderChannel,
   ReminderStatus,
   SchoolCycle,
@@ -56,12 +63,26 @@ import {
 } from '../utils/format';
 import {
   ReceiptModal,
+  ReinscriptionCertificateModal,
   ReminderNoticeModal,
   StudentAvatar,
   StudentCardModal,
 } from './PrintableDocs';
 
-type ScolariteTab = 'dossiers' | 'caisse' | 'recouvrement' | 'parents' | 'tarifs';
+type ScolariteTab =
+  | 'dossiers'
+  | 'reinscriptions'
+  | 'caisse'
+  | 'recouvrement'
+  | 'parents'
+  | 'tarifs';
+
+const REENROLLMENT_DECISION_LABELS: Record<ReenrollmentDecision, string> = {
+  passage: 'Passage en classe supérieure',
+  redoublement: 'Maintien / Redoublement',
+  changement_cycle: 'Passage au cycle supérieur',
+  transfert_programme: 'Changement de programme',
+};
 
 const REMINDER_STATUS_LABELS: Record<ReminderStatus, string> = {
   relance_1: '1ère relance',
@@ -126,6 +147,60 @@ export const ScolariteView: React.FC<{
   const [showParentModal, setShowParentModal] = useState(false);
   const [editingParent, setEditingParent] = useState<ParentTutor | null>(null);
   const [editingFee, setEditingFee] = useState<FeeGridItem | null>(null);
+  const [reinscriptionCertModal, setReinscriptionCertModal] = useState<ReenrollmentRecord | null>(
+    null
+  );
+  const [lastReenrollmentCert, setLastReenrollmentCert] = useState<ReenrollmentRecord | null>(null);
+
+  // Re-enrollment filters & forms
+  const [reinscriptionFilter, setReinscriptionFilter] = useState<
+    'all' | 'a_reinscrire' | 'reinscrit' | 'inscrit'
+  >('all');
+  const [reinscriptionSearch, setReinscriptionSearch] = useState('');
+  const [reinscriptionCycleFilter, setReinscriptionCycleFilter] = useState<string>('all');
+  const [reinscrireForm, setReinscrireForm] = useState<{
+    decision: ReenrollmentDecision;
+    nextAcademicYear: string;
+    nextCycle: SchoolCycle;
+    nextProgram: SchoolProgram;
+    nextClassId: string;
+    parentPhone: string;
+    parentEmail: string;
+    parentAddress: string;
+    feeAmount: number;
+    allowWithUnpaidBalance: boolean;
+    notes: string;
+  }>({
+    decision: 'passage',
+    nextAcademicYear: state.settings.currentAcademicYear,
+    nextCycle: 'Primaire',
+    nextProgram: 'Congolais',
+    nextClassId: '',
+    parentPhone: '',
+    parentEmail: '',
+    parentAddress: '',
+    feeAmount: 120000,
+    allowWithUnpaidBalance: false,
+    notes: '',
+  });
+
+  const [showBatchReinscrireModal, setShowBatchReinscrireModal] = useState(false);
+  const [batchTargetYear, setBatchTargetYear] = useState(state.settings.currentAcademicYear);
+  const [batchDecision, setBatchDecision] = useState<'passage' | 'redoublement'>('passage');
+  const [batchSourceFilter, setBatchSourceFilter] = useState<'all' | 'a_reinscrire'>('all');
+  const [batchSkipUnpaid, setBatchSkipUnpaid] = useState(true);
+  const [batchNotes, setBatchNotes] = useState('');
+  const [batchSelection, setBatchSelection] = useState<
+    Record<
+      string,
+      {
+        selected: boolean;
+        nextCycle: SchoolCycle;
+        nextProgram: SchoolProgram;
+        nextClassId: string;
+      }
+    >
+  >({});
 
   // Recouvrement filters & modals
   const [recoveryFilter, setRecoveryFilter] = useState<
@@ -261,6 +336,65 @@ export const ScolariteView: React.FC<{
       .map((s) => ({ student: s, balance: getStudentBalance(s) }))
       .filter((item) => item.balance.remaining > 0);
   }, [state.students, state.payments, state.feeGrid]);
+
+  const latestReenrollmentByStudent = useMemo(() => {
+    const map = new Map<string, ReenrollmentRecord>();
+    for (const rec of state.reenrollments || []) {
+      const prev = map.get(rec.studentId);
+      if (!prev || new Date(rec.reinscritAt).getTime() >= new Date(prev.reinscritAt).getTime()) {
+        map.set(rec.studentId, rec);
+      }
+    }
+    return map;
+  }, [state.reenrollments]);
+
+  const reinscriptionStats = useMemo(() => {
+    const archivedCount = state.students.filter((s) => s.status === 'archive').length;
+    const reinscritCount = state.students.filter((s) => s.status === 'reinscrit').length;
+    const inscritCount = state.students.filter((s) => s.status === 'inscrit').length;
+    const unpaidCount = state.students.filter((s) => getStudentBalance(s).remaining > 0).length;
+    const pendingReinscriptionNotifsCount = state.paymentNotifications.filter(
+      (n) => n.status === 'en_attente' && n.reason.toLowerCase().includes('réinscription')
+    ).length;
+    return {
+      archivedCount,
+      reinscritCount,
+      inscritCount,
+      unpaidCount,
+      pendingReinscriptionNotifsCount,
+    };
+  }, [state.students, state.payments, state.feeGrid, state.paymentNotifications]);
+
+  const filteredReinscriptionStudents = useMemo(() => {
+    const q = reinscriptionSearch.trim().toLowerCase();
+    const statusOrder: Record<Student['status'], number> = {
+      archive: 0,
+      inscrit: 1,
+      reinscrit: 2,
+    };
+    return state.students
+      .filter((stu) => {
+        if (reinscriptionFilter === 'a_reinscrire' && stu.status !== 'archive') return false;
+        if (reinscriptionFilter === 'reinscrit' && stu.status !== 'reinscrit') return false;
+        if (reinscriptionFilter === 'inscrit' && stu.status !== 'inscrit') return false;
+        if (reinscriptionCycleFilter !== 'all' && stu.cycle !== reinscriptionCycleFilter) return false;
+        if (!q) return true;
+        const parent = state.parents.find((p) => p.id === stu.parentId);
+        return (
+          stu.firstName.toLowerCase().includes(q) ||
+          stu.lastName.toLowerCase().includes(q) ||
+          stu.cardId.toLowerCase().includes(q) ||
+          (parent?.fullName.toLowerCase().includes(q) ?? false)
+        );
+      })
+      .sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
+  }, [
+    state.students,
+    state.parents,
+    reinscriptionFilter,
+    reinscriptionCycleFilter,
+    reinscriptionSearch,
+  ]);
 
   const latestReminderByStudent = useMemo(() => {
     const map = new Map<string, CollectionReminder>();
@@ -521,26 +655,86 @@ export const ScolariteView: React.FC<{
     }
   };
 
-  const handleReinscrire = async (student: Student, nextCycle: SchoolCycle, nextClassId: string) => {
+  const openReinscrireModal = (student: Student) => {
+    const parent = state.parents.find((p) => p.id === student.parentId);
+    const defaultDecision: ReenrollmentDecision = 'passage';
+    const suggested = suggestNextClassAndCycle(
+      { classes: state.classes },
+      student,
+      defaultDecision
+    );
+    const feeAmount = getFeeForReinscription(
+      { feeGrid: state.feeGrid },
+      suggested.nextCycle,
+      suggested.nextProgram
+    );
+    setReinscrireForm({
+      decision: defaultDecision,
+      nextAcademicYear: state.settings.currentAcademicYear,
+      nextCycle: suggested.nextCycle,
+      nextProgram: suggested.nextProgram,
+      nextClassId: suggested.nextClassId || '',
+      parentPhone: parent?.phone || '',
+      parentEmail: parent?.email || '',
+      parentAddress: parent?.address || '',
+      feeAmount,
+      allowWithUnpaidBalance: false,
+      notes: '',
+    });
+    setReinscrireStudent(student);
+  };
+
+  const handleReinscrireDecisionChange = (student: Student, decision: ReenrollmentDecision) => {
+    const suggested = suggestNextClassAndCycle({ classes: state.classes }, student, decision);
+    const feeAmount = getFeeForReinscription(
+      { feeGrid: state.feeGrid },
+      suggested.nextCycle,
+      suggested.nextProgram
+    );
+    setReinscrireForm((prev) => ({
+      ...prev,
+      decision,
+      nextCycle: suggested.nextCycle,
+      nextProgram: suggested.nextProgram,
+      nextClassId: suggested.nextClassId || '',
+      feeAmount,
+    }));
+  };
+
+  const handleReinscrireSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reinscrireStudent) return;
     setBusy(true);
+    setFeedback(null);
+    setLastReenrollmentCert(null);
     try {
-      await apiRequest(
-        `/api/students/${student.id}/reinscrire`,
+      const res = await apiRequest<{ student: Student; reenrollment: ReenrollmentRecord }>(
+        `/api/students/${reinscrireStudent.id}/reinscrire`,
         {
           method: 'POST',
           body: JSON.stringify({
-            nextCycle,
-            nextClassId: nextClassId || null,
-            nextAcademicYear: state.settings.currentAcademicYear,
+            nextCycle: reinscrireForm.nextCycle,
+            nextProgram: reinscrireForm.nextProgram,
+            nextClassId: reinscrireForm.nextClassId || null,
+            nextAcademicYear: reinscrireForm.nextAcademicYear,
+            decision: reinscrireForm.decision,
+            parentPhone: reinscrireForm.parentPhone,
+            parentEmail: reinscrireForm.parentEmail,
+            parentAddress: reinscrireForm.parentAddress,
+            feeAmountOverride: Number(reinscrireForm.feeAmount),
+            allowWithUnpaidBalance: reinscrireForm.allowWithUnpaidBalance,
+            notes: reinscrireForm.notes,
           }),
         },
         session
       );
       await onRefresh();
+      const targetName = `${reinscrireStudent.firstName} ${reinscrireStudent.lastName}`;
       setReinscrireStudent(null);
+      setLastReenrollmentCert(res.reenrollment);
       setFeedback({
         type: 'ok',
-        text: `${student.firstName} ${student.lastName} réinscrit(e) sans ressaisie. Notification envoyée à la Caisse.`,
+        text: `${targetName} réinscrit(e) pour ${res.reenrollment.toAcademicYear} (${REENROLLMENT_DECISION_LABELS[res.reenrollment.decision]}). Notification envoyée à la Caisse.`,
       });
     } catch (err) {
       setFeedback({
@@ -550,6 +744,139 @@ export const ScolariteView: React.FC<{
     } finally {
       setBusy(false);
     }
+  };
+
+  const openBatchReinscrireModal = (
+    decisionMode: 'passage' | 'redoublement' = 'passage',
+    sourceMode: 'all' | 'a_reinscrire' = reinscriptionStats.archivedCount > 0 ? 'a_reinscrire' : 'all'
+  ) => {
+    const nextMap: Record<
+      string,
+      {
+        selected: boolean;
+        nextCycle: SchoolCycle;
+        nextProgram: SchoolProgram;
+        nextClassId: string;
+      }
+    > = {};
+    for (const stu of state.students) {
+      const suggested = suggestNextClassAndCycle({ classes: state.classes }, stu, decisionMode);
+      const isEligibleDefault =
+        sourceMode === 'a_reinscrire' ? stu.status === 'archive' : stu.status !== 'reinscrit';
+      nextMap[stu.id] = {
+        selected: isEligibleDefault,
+        nextCycle: suggested.nextCycle,
+        nextProgram: suggested.nextProgram,
+        nextClassId: suggested.nextClassId || '',
+      };
+    }
+    setBatchDecision(decisionMode);
+    setBatchSourceFilter(sourceMode);
+    setBatchTargetYear(state.settings.currentAcademicYear);
+    setBatchSkipUnpaid(true);
+    setBatchNotes('');
+    setBatchSelection(nextMap);
+    setShowBatchReinscrireModal(true);
+  };
+
+  const handleBatchReinscrireSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const selectedEntries = state.students
+      .filter((s) => batchSelection[s.id]?.selected)
+      .map((s) => {
+        const cfg = batchSelection[s.id];
+        return {
+          studentId: s.id,
+          nextCycle: cfg.nextCycle,
+          nextProgram: cfg.nextProgram,
+          nextClassId: cfg.nextClassId || null,
+          decision: batchDecision,
+        };
+      });
+
+    if (selectedEntries.length === 0) {
+      setFeedback({
+        type: 'err',
+        text: 'Veuillez sélectionner au moins un élève pour le passage de classe groupé.',
+      });
+      return;
+    }
+
+    setBusy(true);
+    setFeedback(null);
+    setLastReenrollmentCert(null);
+    try {
+      const res = await apiRequest<{
+        reinscritCount: number;
+        skippedUnpaidCount: number;
+        reenrollments: ReenrollmentRecord[];
+      }>(
+        '/api/students/reinscrire-batch',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            entries: selectedEntries,
+            nextAcademicYear: batchTargetYear,
+            skipUnpaid: batchSkipUnpaid,
+            notes: batchNotes || 'Passage de classe en lot',
+          }),
+        },
+        session
+      );
+      await onRefresh();
+      setShowBatchReinscrireModal(false);
+      setFeedback({
+        type: 'ok',
+        text: `Réinscription groupée effectuée : ${res.reinscritCount} élève(s) réinscrit(s) pour ${batchTargetYear}${
+          res.skippedUnpaidCount > 0
+            ? ` (${res.skippedUnpaidCount} dossier(s) ignoré(s) pour solde antérieur impayé)`
+            : ''
+        }.`,
+      });
+    } catch (err) {
+      setFeedback({
+        type: 'err',
+        text: err instanceof Error ? err.message : 'Erreur lors de la réinscription en lot.',
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleExportReinscriptionsCsv = () => {
+    const headers = [
+      'Date',
+      'ID Carte',
+      'Élève',
+      'Année antérieure',
+      'Année cible',
+      'Décision',
+      'Cycle antérieur',
+      'Cycle cible',
+      'Classe cible',
+      'Solde antérieur (FCFA)',
+      'Frais Caisse (FCFA)',
+      'Opérateur',
+    ];
+    const rows = (state.reenrollments || []).map((rec) => {
+      const stu = state.students.find((s) => s.id === rec.studentId);
+      const toCls = state.classes.find((c) => c.id === rec.toClassId);
+      return [
+        formatDateTimeFr(rec.reinscritAt),
+        rec.cardId,
+        stu ? `${stu.lastName} ${stu.firstName}` : rec.studentId,
+        rec.fromAcademicYear,
+        rec.toAcademicYear,
+        REENROLLMENT_DECISION_LABELS[rec.decision],
+        `${rec.fromCycle} (${rec.fromProgram})`,
+        `${rec.toCycle} (${rec.toProgram})`,
+        toCls?.name || '—',
+        rec.previousBalanceFcfa,
+        rec.reinscriptionFeeFcfa,
+        rec.reinscritBy,
+      ];
+    });
+    exportToCsv(`reinscriptions-jegama-${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
   };
 
   const handleReplaceCard = async (student: Student) => {
@@ -995,6 +1322,13 @@ export const ScolariteView: React.FC<{
             [
               { id: 'dossiers', label: 'Dossiers & Inscriptions' },
               {
+                id: 'reinscriptions',
+                label:
+                  reinscriptionStats.archivedCount > 0
+                    ? `Réinscriptions (${reinscriptionStats.archivedCount})`
+                    : 'Réinscriptions',
+              },
+              {
                 id: 'caisse',
                 label:
                   pendingNotifications.length > 0
@@ -1051,20 +1385,35 @@ export const ScolariteView: React.FC<{
       {feedback && (
         <div
           role="status"
-          className={`p-3.5 rounded-lg border text-xs font-medium flex items-center justify-between gap-4 ${
+          className={`p-3.5 rounded-lg border text-xs font-medium flex flex-wrap items-center justify-between gap-3 ${
             feedback.type === 'ok'
               ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
               : 'bg-red-50 border-red-200 text-red-800'
           }`}
         >
           <span>{feedback.text}</span>
-          <button
-            type="button"
-            onClick={() => setFeedback(null)}
-            className="text-xs underline shrink-0"
-          >
-            Fermer
-          </button>
+          <div className="flex items-center gap-3 shrink-0">
+            {feedback.type === 'ok' && lastReenrollmentCert && (
+              <button
+                type="button"
+                onClick={() => setReinscriptionCertModal(lastReenrollmentCert)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#0B1933] bg-[#E5A923] hover:bg-[#d89b18] rounded-md"
+              >
+                <Printer className="w-3.5 h-3.5" />
+                Imprimer attestation PDF
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setFeedback(null);
+                setLastReenrollmentCert(null);
+              }}
+              className="text-xs underline shrink-0"
+            >
+              Fermer
+            </button>
+          </div>
         </div>
       )}
 
@@ -1220,7 +1569,7 @@ export const ScolariteView: React.FC<{
                             </button>
                             <button
                               type="button"
-                              onClick={() => setReinscrireStudent(stu)}
+                              onClick={() => openReinscrireModal(stu)}
                               title="Réinscrire sans ressaisie"
                               className="p-2 text-slate-600 border border-slate-200 rounded-md hover:bg-slate-100"
                             >
@@ -1380,7 +1729,7 @@ export const ScolariteView: React.FC<{
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => setReinscrireStudent(stu)}
+                                    onClick={() => openReinscrireModal(stu)}
                                     title="Réinscrire sans ressaisie"
                                     className="p-1.5 text-slate-600 border border-slate-200 rounded-md hover:bg-slate-100"
                                   >
@@ -1406,6 +1755,509 @@ export const ScolariteView: React.FC<{
                 </tbody>
               </table>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* TAB: REINSCRIPTIONS & PASSAGES DE CLASSE */}
+      {activeTab === 'reinscriptions' && (
+        <div className="space-y-6">
+          {/* 4-KPI Strip */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
+            <div className="p-4 sm:p-5 bg-white">
+              <div className="text-xs font-medium text-slate-500">À réinscrire (archivés)</div>
+              <div className="mt-1.5 text-xl sm:text-2xl font-mono font-bold text-amber-700 tabular-nums">
+                {reinscriptionStats.archivedCount}
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                Cartes scolaires conservées (RG-01)
+              </div>
+            </div>
+            <div className="p-4 sm:p-5 bg-white">
+              <div className="text-xs font-medium text-slate-500">
+                Réinscrits · {state.settings.currentAcademicYear}
+              </div>
+              <div className="mt-1.5 text-xl sm:text-2xl font-mono font-bold text-emerald-700 tabular-nums">
+                {reinscriptionStats.reinscritCount}
+              </div>
+              <div className="mt-1 text-xs text-slate-500 tabular-nums">
+                {(state.reenrollments || []).length} attestation(s) éditée(s)
+              </div>
+            </div>
+            <div className="p-4 sm:p-5 bg-white">
+              <div className="text-xs font-medium text-slate-500">Dossiers avec solde antérieur</div>
+              <div className="mt-1.5 text-xl sm:text-2xl font-mono font-bold text-red-700 tabular-nums">
+                {reinscriptionStats.unpaidCount}
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                Contrôle financier avant passage
+              </div>
+            </div>
+            <div className="p-4 sm:p-5 bg-white">
+              <div className="text-xs font-medium text-slate-500">
+                Frais réinscription en attente Caisse
+              </div>
+              <div className="mt-1.5 text-xl sm:text-2xl font-mono font-bold text-blue-900 tabular-nums">
+                {reinscriptionStats.pendingReinscriptionNotifsCount}
+              </div>
+              <div className="mt-1 text-xs text-slate-500">
+                Notifications transmises automatiquement
+              </div>
+            </div>
+          </div>
+
+          {/* Filter & Batch Bar */}
+          <div className="bg-white border border-slate-200 rounded-xl p-3.5 sm:p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+            <div className="grid grid-cols-1 sm:flex sm:flex-wrap items-center gap-2.5 flex-1 min-w-0">
+              <div className="relative w-full sm:flex-1 sm:min-w-[210px] sm:max-w-xs">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={reinscriptionSearch}
+                  onChange={(e) => setReinscriptionSearch(e.target.value)}
+                  placeholder="Nom élève, parent ou ID carte..."
+                  className="w-full pl-9 pr-3 py-2 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-900"
+                />
+              </div>
+
+              <select
+                value={reinscriptionFilter}
+                onChange={(e) =>
+                  setReinscriptionFilter(
+                    e.target.value as 'all' | 'a_reinscrire' | 'reinscrit' | 'inscrit'
+                  )
+                }
+                aria-label="Filtrer par statut de réinscription"
+                className="w-full sm:w-auto px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+              >
+                <option value="all">Tous les dossiers ({state.students.length})</option>
+                <option value="a_reinscrire">
+                  À réinscrire · Archivés ({reinscriptionStats.archivedCount})
+                </option>
+                <option value="inscrit">
+                  Nouveaux inscrits ({reinscriptionStats.inscritCount})
+                </option>
+                <option value="reinscrit">
+                  Déjà réinscrits ({reinscriptionStats.reinscritCount})
+                </option>
+              </select>
+
+              <select
+                value={reinscriptionCycleFilter}
+                onChange={(e) => setReinscriptionCycleFilter(e.target.value)}
+                aria-label="Filtrer par cycle"
+                className="w-full sm:w-auto px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+              >
+                <option value="all">Tous les cycles</option>
+                {CYCLES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleExportReinscriptionsCsv}
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 border border-slate-200 rounded-lg hover:bg-slate-50 whitespace-nowrap"
+              >
+                <Download className="w-3.5 h-3.5" />
+                Exporter journal CSV
+              </button>
+              {canModifyScolarite && !isReadOnly && (
+                <button
+                  type="button"
+                  onClick={() => openBatchReinscrireModal('passage')}
+                  className="inline-flex items-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-lg transition-colors whitespace-nowrap"
+                >
+                  <Layers className="w-4 h-4" />
+                  Passage de classe en lot
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Student List for Re-enrollment */}
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            {/* Mobile Cards */}
+            <div className="md:hidden divide-y divide-slate-100">
+              {filteredReinscriptionStudents.length === 0 ? (
+                <div className="p-8 text-center text-sm text-slate-500">
+                  Aucun dossier ne correspond aux filtres sélectionnés.
+                </div>
+              ) : (
+                filteredReinscriptionStudents.map((stu) => {
+                  const cls = state.classes.find((c) => c.id === stu.classId);
+                  const parent = state.parents.find((p) => p.id === stu.parentId);
+                  const bal = getStudentBalance(stu);
+                  const latestRec = latestReenrollmentByStudent.get(stu.id);
+                  return (
+                    <div key={stu.id} className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <StudentAvatar
+                            photoUrl={stu.photoUrl}
+                            firstName={stu.firstName}
+                            lastName={stu.lastName}
+                          />
+                          <div className="min-w-0">
+                            <div className="font-semibold text-slate-900 truncate">
+                              {stu.lastName} {stu.firstName}
+                            </div>
+                            <div className="text-xs font-mono text-slate-500">
+                              {stu.cardId} · {stu.academicYear}
+                            </div>
+                            <div className="text-xs text-slate-600">
+                              {stu.cycle} · {cls ? cls.name : 'Non affecté'} ({stu.program})
+                            </div>
+                          </div>
+                        </div>
+                        <div className="text-xs font-semibold shrink-0">
+                          {stu.status === 'archive' && (
+                            <span className="text-amber-700">À réinscrire</span>
+                          )}
+                          {stu.status === 'reinscrit' && (
+                            <span className="text-emerald-700">Réinscrit</span>
+                          )}
+                          {stu.status === 'inscrit' && (
+                            <span className="text-blue-900">Inscrit</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center justify-between gap-2 text-xs bg-slate-50 rounded-lg px-3 py-2">
+                        <span className="text-slate-600 truncate">
+                          Parent : <strong className="text-slate-800">{parent?.fullName || '—'}</strong>
+                        </span>
+                        <span
+                          className={`font-mono font-semibold tabular-nums ${
+                            bal.remaining > 0 ? 'text-red-700' : 'text-emerald-700'
+                          }`}
+                        >
+                          Solde : {formatFcfa(bal.remaining)}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {canModifyScolarite && !isReadOnly && (
+                          <button
+                            type="button"
+                            onClick={() => openReinscrireModal(stu)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-md"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            {stu.status === 'archive' ? 'Réinscrire' : 'Passage / Réinscrire'}
+                          </button>
+                        )}
+                        {latestRec && (
+                          <button
+                            type="button"
+                            onClick={() => setReinscriptionCertModal(latestRec)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#0B1933] bg-[#E5A923] hover:bg-[#d89b18] rounded-md"
+                          >
+                            <Printer className="w-3.5 h-3.5" />
+                            Fiche PDF
+                          </button>
+                        )}
+                        {canCollectCaisse && !isReadOnly && bal.remaining > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPayForm({
+                                amountPaid: Math.min(bal.remaining, 100000),
+                                method: 'Espèces',
+                                trancheLabel: 'Régularisation avant réinscription',
+                                notes: '',
+                              });
+                              setCollectTarget({
+                                student: stu,
+                                suggestedAmount: bal.remaining,
+                                trancheLabel: 'Régularisation avant réinscription',
+                              });
+                            }}
+                            className="px-3 py-1.5 text-xs font-medium text-slate-700 border border-slate-200 rounded-md hover:bg-slate-100"
+                          >
+                            Encaisser
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Desktop Table */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
+                    <th className="py-3 px-4 font-semibold">Élève & ID Carte (RG-01)</th>
+                    <th className="py-3 px-4 font-semibold">Cycle · Classe actuelle</th>
+                    <th className="py-3 px-4 font-semibold">Parent / Contacts</th>
+                    <th className="py-3 px-4 font-semibold text-right">Solde antérieur</th>
+                    <th className="py-3 px-4 font-semibold">Statut dossier</th>
+                    <th className="py-3 px-4 font-semibold text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {filteredReinscriptionStudents.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-10 text-center text-sm text-slate-500">
+                        Aucun dossier ne correspond aux filtres sélectionnés.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredReinscriptionStudents.map((stu) => {
+                      const cls = state.classes.find((c) => c.id === stu.classId);
+                      const parent = state.parents.find((p) => p.id === stu.parentId);
+                      const bal = getStudentBalance(stu);
+                      const latestRec = latestReenrollmentByStudent.get(stu.id);
+                      return (
+                        <tr key={stu.id} className="hover:bg-slate-50/70">
+                          <td className="py-3 px-4">
+                            <div className="flex items-center gap-3">
+                              <StudentAvatar
+                                photoUrl={stu.photoUrl}
+                                firstName={stu.firstName}
+                                lastName={stu.lastName}
+                              />
+                              <div>
+                                <div className="font-semibold text-slate-900">
+                                  {stu.lastName} {stu.firstName}
+                                </div>
+                                <div className="text-xs font-mono text-slate-500">
+                                  {stu.cardId} · Année {stu.academicYear}
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="font-medium text-slate-800">
+                              {cls ? cls.name : 'Non affecté'}
+                            </div>
+                            <div className="text-xs text-slate-500">
+                              {stu.cycle} · {stu.program}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <div className="text-slate-800">{parent?.fullName || '—'}</div>
+                            <div className="text-xs font-mono text-slate-500">
+                              {parent?.phone || '—'}
+                            </div>
+                          </td>
+                          <td className="py-3 px-4 text-right font-mono tabular-nums">
+                            {bal.remaining === 0 ? (
+                              <span className="font-semibold text-emerald-700">0 FCFA (Soldé)</span>
+                            ) : (
+                              <span className="font-semibold text-red-700">
+                                {formatFcfa(bal.remaining)}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-xs">
+                            {stu.status === 'archive' && (
+                              <span className="font-semibold text-amber-700">
+                                À réinscrire (Archivé)
+                              </span>
+                            )}
+                            {stu.status === 'reinscrit' && (
+                              <span className="font-semibold text-emerald-700">
+                                Réinscrit · {stu.academicYear}
+                              </span>
+                            )}
+                            {stu.status === 'inscrit' && (
+                              <span className="font-semibold text-blue-900">
+                                Inscrit · {stu.academicYear}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            <div className="inline-flex items-center justify-end gap-1.5">
+                              {latestRec && (
+                                <button
+                                  type="button"
+                                  onClick={() => setReinscriptionCertModal(latestRec)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-[#0B1933] bg-[#E5A923] hover:bg-[#d89b18] rounded-md whitespace-nowrap"
+                                >
+                                  <Printer className="w-3.5 h-3.5" />
+                                  Fiche PDF
+                                </button>
+                              )}
+                              {canCollectCaisse && !isReadOnly && bal.remaining > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPayForm({
+                                      amountPaid: Math.min(bal.remaining, 100000),
+                                      method: 'Espèces',
+                                      trancheLabel: 'Régularisation avant réinscription',
+                                      notes: '',
+                                    });
+                                    setCollectTarget({
+                                      student: stu,
+                                      suggestedAmount: bal.remaining,
+                                      trancheLabel: 'Régularisation avant réinscription',
+                                    });
+                                  }}
+                                  className="px-2.5 py-1.5 text-xs font-medium text-slate-700 border border-slate-200 rounded-md hover:bg-slate-100 whitespace-nowrap"
+                                >
+                                  Encaisser
+                                </button>
+                              )}
+                              {canModifyScolarite && !isReadOnly && (
+                                <button
+                                  type="button"
+                                  onClick={() => openReinscrireModal(stu)}
+                                  className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 rounded-md whitespace-nowrap"
+                                >
+                                  <RefreshCw className="w-3.5 h-3.5" />
+                                  {stu.status === 'archive' ? 'Réinscrire' : 'Passage'}
+                                </button>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Historique des réinscriptions */}
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="px-4 py-3.5 sm:px-6 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="font-display text-base font-bold text-slate-900">
+                  Journal des réinscriptions ({(state.reenrollments || []).length})
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Traçabilité des passages de classe, redoublements et frais notifiés à la Caisse.
+                </p>
+              </div>
+            </div>
+
+            {(state.reenrollments || []).length === 0 ? (
+              <div className="p-8 text-center text-sm text-slate-500">
+                Aucune réinscription enregistrée pour le moment.
+              </div>
+            ) : (
+              <>
+                <div className="md:hidden divide-y divide-slate-100">
+                  {(state.reenrollments || []).map((rec) => {
+                    const stu = state.students.find((s) => s.id === rec.studentId);
+                    const fromCls = state.classes.find((c) => c.id === rec.fromClassId);
+                    const toCls = state.classes.find((c) => c.id === rec.toClassId);
+                    return (
+                      <div key={rec.id} className="p-4 space-y-2 text-xs">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="font-bold text-slate-900">
+                              {stu ? `${stu.lastName} ${stu.firstName}` : rec.cardId}
+                            </div>
+                            <div className="font-mono text-slate-500">
+                              {rec.cardId} · {formatDateTimeFr(rec.reinscritAt)}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setReinscriptionCertModal(rec)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-[#0B1933] bg-[#E5A923] rounded-md shrink-0"
+                          >
+                            <Printer className="w-3 h-3" />
+                            Attestation
+                          </button>
+                        </div>
+                        <div className="text-slate-700">
+                          {rec.fromAcademicYear} ({fromCls?.name || rec.fromCycle}) →{' '}
+                          <strong className="text-blue-900">
+                            {rec.toAcademicYear} ({toCls?.name || rec.toCycle})
+                          </strong>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-slate-600">
+                          <span>{REENROLLMENT_DECISION_LABELS[rec.decision]}</span>
+                          <span className="font-mono font-semibold text-slate-900 tabular-nums">
+                            Frais : {formatFcfa(rec.reinscriptionFeeFcfa)}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="hidden md:block overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
+                        <th className="py-3 px-4 font-semibold">Date & Opérateur</th>
+                        <th className="py-3 px-4 font-semibold">Élève & Carte</th>
+                        <th className="py-3 px-4 font-semibold">Transition académique</th>
+                        <th className="py-3 px-4 font-semibold">Décision</th>
+                        <th className="py-3 px-4 font-semibold text-right">Frais Caisse</th>
+                        <th className="py-3 px-4 font-semibold text-right">Document</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {(state.reenrollments || []).map((rec) => {
+                        const stu = state.students.find((s) => s.id === rec.studentId);
+                        const fromCls = state.classes.find((c) => c.id === rec.fromClassId);
+                        const toCls = state.classes.find((c) => c.id === rec.toClassId);
+                        return (
+                          <tr key={rec.id} className="hover:bg-slate-50/70">
+                            <td className="py-3 px-4 text-xs">
+                              <div className="font-mono text-slate-700">
+                                {formatDateTimeFr(rec.reinscritAt)}
+                              </div>
+                              <div className="text-slate-500">{rec.reinscritBy}</div>
+                            </td>
+                            <td className="py-3 px-4">
+                              <div className="font-semibold text-slate-900">
+                                {stu ? `${stu.lastName} ${stu.firstName}` : rec.studentId}
+                              </div>
+                              <div className="text-xs font-mono text-slate-500">{rec.cardId}</div>
+                            </td>
+                            <td className="py-3 px-4 text-xs">
+                              <div className="flex items-center gap-1.5 text-slate-700">
+                                <span>
+                                  {rec.fromAcademicYear} · {fromCls?.name || rec.fromCycle}
+                                </span>
+                                <ArrowRight className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                                <span className="font-semibold text-blue-900">
+                                  {rec.toAcademicYear} · {toCls?.name || rec.toCycle}
+                                </span>
+                              </div>
+                              <div className="text-slate-500 mt-0.5">
+                                {rec.toCycle} · {rec.toProgram}
+                              </div>
+                            </td>
+                            <td className="py-3 px-4 text-xs font-medium text-slate-800">
+                              {REENROLLMENT_DECISION_LABELS[rec.decision]}
+                            </td>
+                            <td className="py-3 px-4 text-right font-mono font-semibold text-slate-900 tabular-nums">
+                              {formatFcfa(rec.reinscriptionFeeFcfa)}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <button
+                                type="button"
+                                onClick={() => setReinscriptionCertModal(rec)}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-[#0B1933] bg-[#E5A923] hover:bg-[#d89b18] rounded-md whitespace-nowrap"
+                              >
+                                <Printer className="w-3.5 h-3.5" />
+                                Attestation PDF
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -3045,45 +3897,599 @@ export const ScolariteView: React.FC<{
       )}
 
       {/* MODAL: REINSCRIPTION */}
-      {reinscrireStudent && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
-          <div className="bg-white border border-slate-200 rounded-xl max-w-md w-full p-5 sm:p-6 space-y-4 my-auto">
-            <h3 className="font-display text-lg font-bold text-slate-900">
-              Réinscription rapide (sans ressaisie)
-            </h3>
-            <p className="text-sm text-slate-600">
-              Confirmer la réinscription de{' '}
-              <span className="font-semibold text-slate-900">
-                {reinscrireStudent.firstName} {reinscrireStudent.lastName}
-              </span>{' '}
-              ({reinscrireStudent.cardId}) pour l’année {state.settings.currentAcademicYear} ? Une notification sera envoyée à la Caisse.
-            </p>
-            <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
-              <button
-                type="button"
-                onClick={() => setReinscrireStudent(null)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() =>
-                  handleReinscrire(
-                    reinscrireStudent,
-                    reinscrireStudent.cycle,
-                    reinscrireStudent.classId || ''
-                  )
-                }
-                className="px-4 py-2 text-xs font-semibold text-white bg-blue-900 rounded-lg"
-              >
-                Confirmer la réinscription
-              </button>
-            </div>
+      {reinscrireStudent && (() => {
+        const currentBal = getStudentBalance(reinscrireStudent);
+        const currentCls = state.classes.find((c) => c.id === reinscrireStudent.classId);
+        const matchingClasses = state.classes.filter(
+          (c) =>
+            c.cycle === reinscrireForm.nextCycle && c.program === reinscrireForm.nextProgram
+        );
+        const fallbackClasses = state.classes.filter((c) => c.cycle === reinscrireForm.nextCycle);
+        const targetClassOptions =
+          matchingClasses.length > 0
+            ? matchingClasses
+            : fallbackClasses.length > 0
+              ? fallbackClasses
+              : state.classes;
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+            <form
+              onSubmit={handleReinscrireSubmit}
+              className="bg-white border border-slate-200 rounded-xl max-w-2xl w-full max-h-[92vh] overflow-y-auto p-4 sm:p-6 space-y-4 my-auto"
+            >
+              <div className="flex items-start justify-between gap-3 border-b border-slate-200 pb-3">
+                <div>
+                  <h3 className="font-display text-lg font-bold text-slate-900">
+                    Réinscription sans ressaisie · {reinscrireStudent.cardId}
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    L’identifiant carte unique est conservé (RG-01) et une notification est émise vers la Caisse.
+                  </p>
+                </div>
+              </div>
+
+              {/* Existing student summary */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-50 border border-slate-200 rounded-lg p-3.5">
+                <div className="flex items-center gap-3 min-w-0">
+                  <StudentAvatar
+                    photoUrl={reinscrireStudent.photoUrl}
+                    firstName={reinscrireStudent.firstName}
+                    lastName={reinscrireStudent.lastName}
+                  />
+                  <div className="min-w-0">
+                    <div className="font-bold text-slate-900 truncate">
+                      {reinscrireStudent.lastName} {reinscrireStudent.firstName}
+                    </div>
+                    <div className="text-xs text-slate-600">
+                      Actuel : {reinscrireStudent.cycle} · {currentCls?.name || 'Non affecté'} (
+                      {reinscrireStudent.program}) · {reinscrireStudent.academicYear}
+                    </div>
+                  </div>
+                </div>
+                <div className="text-left sm:text-right shrink-0">
+                  <div className="text-[11px] uppercase tracking-wide text-slate-500">
+                    Solde antérieur
+                  </div>
+                  <div
+                    className={`font-mono text-sm font-bold tabular-nums ${
+                      currentBal.remaining > 0 ? 'text-red-700' : 'text-emerald-700'
+                    }`}
+                  >
+                    {formatFcfa(currentBal.remaining)}
+                  </div>
+                </div>
+              </div>
+
+              {currentBal.remaining > 0 && (
+                <div className="p-3 rounded-lg bg-amber-50 border border-amber-300 space-y-2 text-xs text-amber-950">
+                  <div className="flex items-start gap-2 font-semibold">
+                    <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                    <span>
+                      Solde antérieur impayé de {formatFcfa(currentBal.remaining)} détecté sur le dossier financier.
+                    </span>
+                  </div>
+                  <label className="flex items-center gap-2 font-medium cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={reinscrireForm.allowWithUnpaidBalance}
+                      onChange={(e) =>
+                        setReinscrireForm({
+                          ...reinscrireForm,
+                          allowWithUnpaidBalance: e.target.checked,
+                        })
+                      }
+                      className="rounded border-amber-400"
+                    />
+                    Autoriser exceptionnellement la réinscription malgré le solde impayé
+                  </label>
+                </div>
+              )}
+
+              {/* Academic transition */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Décision académique
+                  </label>
+                  <select
+                    value={reinscrireForm.decision}
+                    onChange={(e) =>
+                      handleReinscrireDecisionChange(
+                        reinscrireStudent,
+                        e.target.value as ReenrollmentDecision
+                      )
+                    }
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+                  >
+                    {(Object.keys(REENROLLMENT_DECISION_LABELS) as ReenrollmentDecision[]).map((d) => (
+                      <option key={d} value={d}>
+                        {REENROLLMENT_DECISION_LABELS[d]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Année académique cible
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={reinscrireForm.nextAcademicYear}
+                    onChange={(e) =>
+                      setReinscrireForm({ ...reinscrireForm, nextAcademicYear: e.target.value })
+                    }
+                    placeholder="2026-2027"
+                    className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Nouveau cycle
+                  </label>
+                  <select
+                    value={reinscrireForm.nextCycle}
+                    onChange={(e) => {
+                      const nextCycle = e.target.value as SchoolCycle;
+                      const firstCls =
+                        state.classes.find(
+                          (c) => c.cycle === nextCycle && c.program === reinscrireForm.nextProgram
+                        ) || state.classes.find((c) => c.cycle === nextCycle);
+                      const nextFee = getFeeForReinscription(
+                        { feeGrid: state.feeGrid },
+                        nextCycle,
+                        reinscrireForm.nextProgram
+                      );
+                      setReinscrireForm({
+                        ...reinscrireForm,
+                        nextCycle,
+                        nextClassId: firstCls?.id || '',
+                        feeAmount: nextFee,
+                      });
+                    }}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+                  >
+                    {CYCLES.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Programme
+                  </label>
+                  <select
+                    value={reinscrireForm.nextProgram}
+                    onChange={(e) => {
+                      const nextProgram = e.target.value as SchoolProgram;
+                      const firstCls = state.classes.find(
+                        (c) => c.cycle === reinscrireForm.nextCycle && c.program === nextProgram
+                      );
+                      const nextFee = getFeeForReinscription(
+                        { feeGrid: state.feeGrid },
+                        reinscrireForm.nextCycle,
+                        nextProgram
+                      );
+                      setReinscrireForm({
+                        ...reinscrireForm,
+                        nextProgram,
+                        nextClassId: firstCls?.id || reinscrireForm.nextClassId,
+                        feeAmount: nextFee,
+                      });
+                    }}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+                  >
+                    {PROGRAMS.map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Classe d’affectation
+                  </label>
+                  <select
+                    value={reinscrireForm.nextClassId}
+                    onChange={(e) =>
+                      setReinscrireForm({ ...reinscrireForm, nextClassId: e.target.value })
+                    }
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+                  >
+                    <option value="">À affecter ultérieurement</option>
+                    {targetClassOptions.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({c.cycle} · {c.program})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Frais notifiés à la Caisse (FCFA)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={500}
+                    required
+                    value={reinscrireForm.feeAmount}
+                    onChange={(e) =>
+                      setReinscrireForm({
+                        ...reinscrireForm,
+                        feeAmount: Number(e.target.value),
+                      })
+                    }
+                    className="w-full px-3 py-2 text-sm font-mono font-semibold border border-slate-300 rounded-lg"
+                  />
+                </div>
+              </div>
+
+              {/* Parent Contact Verification */}
+              <div className="pt-3 border-t border-slate-200 space-y-2.5">
+                <div className="text-xs font-semibold text-slate-800">
+                  Vérification des contacts Parent / Tuteur
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                      Téléphone / WhatsApp
+                    </label>
+                    <input
+                      type="text"
+                      value={reinscrireForm.parentPhone}
+                      onChange={(e) =>
+                        setReinscrireForm({ ...reinscrireForm, parentPhone: e.target.value })
+                      }
+                      className="w-full px-3 py-2 text-xs font-mono border border-slate-300 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                      E-mail
+                    </label>
+                    <input
+                      type="email"
+                      value={reinscrireForm.parentEmail}
+                      onChange={(e) =>
+                        setReinscrireForm({ ...reinscrireForm, parentEmail: e.target.value })
+                      }
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                      Adresse
+                    </label>
+                    <input
+                      type="text"
+                      value={reinscrireForm.parentAddress}
+                      onChange={(e) =>
+                        setReinscrireForm({ ...reinscrireForm, parentAddress: e.target.value })
+                      }
+                      className="w-full px-3 py-2 text-xs border border-slate-300 rounded-lg"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Observations (conseil de classe / dossier)
+                </label>
+                <input
+                  type="text"
+                  value={reinscrireForm.notes}
+                  onChange={(e) => setReinscrireForm({ ...reinscrireForm, notes: e.target.value })}
+                  placeholder="Ex. Passage admis par le conseil de classe..."
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setReinscrireStudent(null)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={busy || (currentBal.remaining > 0 && !reinscrireForm.allowWithUnpaidBalance)}
+                  className="px-5 py-2 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 disabled:opacity-50 rounded-lg"
+                >
+                  {busy ? 'Validation...' : 'Valider la réinscription'}
+                </button>
+              </div>
+            </form>
           </div>
-        </div>
-      )}
+        );
+      })()}
+
+      {/* MODAL: BATCH CLASS PROMOTION / REINSCRIPTION */}
+      {showBatchReinscrireModal && (() => {
+        const visibleBatchStudents = state.students.filter((s) =>
+          batchSourceFilter === 'a_reinscrire' ? s.status === 'archive' : true
+        );
+        const selectedCount = visibleBatchStudents.filter((s) => batchSelection[s.id]?.selected).length;
+        const allChecked =
+          visibleBatchStudents.length > 0 && selectedCount === visibleBatchStudents.length;
+
+        return (
+          <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+            <form
+              onSubmit={handleBatchReinscrireSubmit}
+              className="bg-white border border-slate-200 rounded-xl max-w-4xl w-full max-h-[92vh] flex flex-col overflow-hidden my-auto"
+            >
+              <div className="px-4 py-3.5 sm:px-6 sm:py-4 border-b border-slate-200 bg-slate-50 flex flex-wrap items-center justify-between gap-2 shrink-0">
+                <div>
+                  <h3 className="font-display text-base sm:text-lg font-bold text-slate-900">
+                    Passage de classe & Réinscription en lot
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    Affectez plusieurs élèves vers leur nouvelle classe en conservant leur carte scolaire (RG-01).
+                  </p>
+                </div>
+                <span className="font-mono text-xs font-semibold text-blue-900 tabular-nums">
+                  {selectedCount} élève(s) sélectionné(s)
+                </span>
+              </div>
+
+              <div className="p-4 sm:p-6 space-y-4 overflow-y-auto flex-1">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-slate-50 border border-slate-200 rounded-lg p-3.5">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Année cible
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={batchTargetYear}
+                      onChange={(e) => setBatchTargetYear(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs font-mono border border-slate-300 rounded-lg bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Décision par défaut
+                    </label>
+                    <select
+                      value={batchDecision}
+                      onChange={(e) => {
+                        const mode = e.target.value as 'passage' | 'redoublement';
+                        setBatchDecision(mode);
+                        const nextMap = { ...batchSelection };
+                        for (const stu of state.students) {
+                          const sug = suggestNextClassAndCycle({ classes: state.classes }, stu, mode);
+                          nextMap[stu.id] = {
+                            selected: nextMap[stu.id]?.selected ?? false,
+                            nextCycle: sug.nextCycle,
+                            nextProgram: sug.nextProgram,
+                            nextClassId: sug.nextClassId || '',
+                          };
+                        }
+                        setBatchSelection(nextMap);
+                      }}
+                      className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
+                    >
+                      <option value="passage">Passage en classe supérieure</option>
+                      <option value="redoublement">Maintien / Redoublement</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Périmètre élèves
+                    </label>
+                    <select
+                      value={batchSourceFilter}
+                      onChange={(e) =>
+                        setBatchSourceFilter(e.target.value as 'all' | 'a_reinscrire')
+                      }
+                      className="w-full px-3 py-1.5 text-xs border border-slate-300 rounded-lg bg-white"
+                    >
+                      <option value="all">Tous les élèves ({state.students.length})</option>
+                      <option value="a_reinscrire">
+                        Archivés uniquement ({reinscriptionStats.archivedCount})
+                      </option>
+                    </select>
+                  </div>
+                  <div className="flex items-end">
+                    <label className="flex items-center gap-2 text-xs font-medium text-slate-700 cursor-pointer pb-1.5">
+                      <input
+                        type="checkbox"
+                        checked={batchSkipUnpaid}
+                        onChange={(e) => setBatchSkipUnpaid(e.target.checked)}
+                        className="rounded border-slate-300"
+                      />
+                      Ignorer soldes impayés
+                    </label>
+                  </div>
+                </div>
+
+                <div className="border border-slate-200 rounded-lg overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 border-b border-slate-200 text-left text-slate-600">
+                        <th className="py-2.5 px-3">
+                          <input
+                            type="checkbox"
+                            checked={allChecked}
+                            onChange={(e) => {
+                              const checked = e.target.checked;
+                              const nextMap = { ...batchSelection };
+                              for (const stu of visibleBatchStudents) {
+                                if (nextMap[stu.id]) {
+                                  nextMap[stu.id] = { ...nextMap[stu.id], selected: checked };
+                                }
+                              }
+                              setBatchSelection(nextMap);
+                            }}
+                            aria-label="Tout sélectionner"
+                          />
+                        </th>
+                        <th className="py-2.5 px-3 font-semibold">Élève & Carte</th>
+                        <th className="py-2.5 px-3 font-semibold">Situation actuelle</th>
+                        <th className="py-2.5 px-3 font-semibold text-right">Solde antérieur</th>
+                        <th className="py-2.5 px-3 font-semibold">Cycle cible</th>
+                        <th className="py-2.5 px-3 font-semibold">Classe cible</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {visibleBatchStudents.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-6 text-center text-slate-500">
+                            Aucun élève dans ce périmètre.
+                          </td>
+                        </tr>
+                      ) : (
+                        visibleBatchStudents.map((stu) => {
+                          const bal = getStudentBalance(stu);
+                          const currentCls = state.classes.find((c) => c.id === stu.classId);
+                          const cfg = batchSelection[stu.id] || {
+                            selected: false,
+                            nextCycle: stu.cycle,
+                            nextProgram: stu.program,
+                            nextClassId: stu.classId || '',
+                          };
+                          const cycleClasses = state.classes.filter(
+                            (c) => c.cycle === cfg.nextCycle
+                          );
+                          const classChoices =
+                            cycleClasses.length > 0 ? cycleClasses : state.classes;
+
+                          return (
+                            <tr key={stu.id} className="hover:bg-slate-50/70">
+                              <td className="py-2.5 px-3">
+                                <input
+                                  type="checkbox"
+                                  checked={cfg.selected}
+                                  onChange={(e) =>
+                                    setBatchSelection({
+                                      ...batchSelection,
+                                      [stu.id]: { ...cfg, selected: e.target.checked },
+                                    })
+                                  }
+                                />
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <div className="font-semibold text-slate-900">
+                                  {stu.lastName} {stu.firstName}
+                                </div>
+                                <div className="font-mono text-slate-500">{stu.cardId}</div>
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-600">
+                                {stu.cycle} · {currentCls?.name || 'Non affecté'}
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono tabular-nums">
+                                <span
+                                  className={
+                                    bal.remaining > 0
+                                      ? 'font-semibold text-red-700'
+                                      : 'text-emerald-700'
+                                  }
+                                >
+                                  {formatFcfa(bal.remaining)}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <select
+                                  value={cfg.nextCycle}
+                                  onChange={(e) => {
+                                    const nextCycle = e.target.value as SchoolCycle;
+                                    const firstCls = state.classes.find(
+                                      (c) => c.cycle === nextCycle
+                                    );
+                                    setBatchSelection({
+                                      ...batchSelection,
+                                      [stu.id]: {
+                                        ...cfg,
+                                        nextCycle,
+                                        nextClassId: firstCls?.id || '',
+                                      },
+                                    });
+                                  }}
+                                  className="px-2 py-1 border border-slate-300 rounded bg-white"
+                                >
+                                  {CYCLES.map((c) => (
+                                    <option key={c} value={c}>
+                                      {c}
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <select
+                                  value={cfg.nextClassId}
+                                  onChange={(e) =>
+                                    setBatchSelection({
+                                      ...batchSelection,
+                                      [stu.id]: { ...cfg, nextClassId: e.target.value },
+                                    })
+                                  }
+                                  className="px-2 py-1 border border-slate-300 rounded bg-white"
+                                >
+                                  <option value="">À affecter</option>
+                                  {classChoices.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                      {c.name} ({c.program})
+                                    </option>
+                                  ))}
+                                </select>
+                              </td>
+                            </tr>
+                          );
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">
+                    Note du passage groupé
+                  </label>
+                  <input
+                    type="text"
+                    value={batchNotes}
+                    onChange={(e) => setBatchNotes(e.target.value)}
+                    placeholder="Ex. Délibérations conseil de classe fin d’année..."
+                    className="w-full px-3 py-2 text-xs sm:text-sm border border-slate-300 rounded-lg"
+                  />
+                </div>
+              </div>
+
+              <div className="px-4 py-3 sm:px-6 border-t border-slate-200 bg-slate-50 flex items-center justify-end gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setShowBatchReinscrireModal(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  disabled={busy || selectedCount === 0}
+                  className="px-5 py-2 text-xs font-semibold text-white bg-blue-900 hover:bg-blue-800 disabled:opacity-50 rounded-lg"
+                >
+                  {busy
+                    ? 'Traitement...'
+                    : `Réinscrire ${selectedCount} élève(s) sélectionné(s)`}
+                </button>
+              </div>
+            </form>
+          </div>
+        );
+      })()}
 
       {/* MODAL: COLLECT PAYMENT */}
       {collectTarget && (
@@ -3726,6 +5132,22 @@ export const ScolariteView: React.FC<{
           onClose={() => setNoticeModal(null)}
         />
       )}
+
+      {reinscriptionCertModal && (() => {
+        const stu = state.students.find((s) => s.id === reinscriptionCertModal.studentId);
+        if (!stu) return null;
+        return (
+          <ReinscriptionCertificateModal
+            record={reinscriptionCertModal}
+            student={stu}
+            fromClass={state.classes.find((c) => c.id === reinscriptionCertModal.fromClassId)}
+            toClass={state.classes.find((c) => c.id === reinscriptionCertModal.toClassId)}
+            parent={state.parents.find((p) => p.id === stu.parentId)}
+            settings={state.settings}
+            onClose={() => setReinscriptionCertModal(null)}
+          />
+        );
+      })()}
     </div>
   );
 };

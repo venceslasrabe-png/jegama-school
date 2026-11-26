@@ -13,6 +13,7 @@ import type {
   ParentTutor,
   Payment,
   PaymentNotification,
+  ReenrollmentRecord,
   SchoolClass,
   SchoolDatabase,
   SchoolSettings,
@@ -41,6 +42,7 @@ export interface AppState {
   paymentNotifications: PaymentNotification[];
   payments: Payment[];
   collectionReminders: CollectionReminder[];
+  reenrollments: ReenrollmentRecord[];
   attendanceLogs: AttendanceLog[];
   grades: Grade[];
   bulletins: Bulletin[];

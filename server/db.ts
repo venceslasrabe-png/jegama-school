@@ -6,6 +6,7 @@ import {
   ensureArchiveSeedData,
   ensureGradeWorkflowData,
   ensureRecouvrementData,
+  ensureReinscriptionData,
   ensureTeacherSeedData,
 } from '../src/shared/schoolEngine';
 
@@ -25,13 +26,16 @@ export {
   ensureArchiveSeedData,
   ensureGradeWorkflowData,
   ensureRecouvrementData,
+  ensureReinscriptionData,
   ensureTeacherSeedData,
   evaluateStudentAutoFollowUp,
   getDefaultCollectionAutomation,
+  getFeeForReinscription,
   getTeacherCumulativeHours,
   recalculateClassBulletins,
   runAutomaticOverdueNotifications,
   sanitizeDbForClient,
+  suggestNextClassAndCycle,
 } from '../src/shared/schoolEngine';
 
 const DATA_DIR = path.resolve(process.cwd(), 'data');
@@ -56,6 +60,7 @@ export function loadDatabase(): SchoolDatabase {
     ensureArchiveSeedData(parsed);
     ensureGradeWorkflowData(parsed);
     ensureRecouvrementData(parsed);
+    ensureReinscriptionData(parsed);
     return parsed;
   } catch {
     const seed = createSeedDatabase();

@@ -8,6 +8,7 @@ import {
   CreditCard,
   GraduationCap,
   Lock,
+  RefreshCw,
   Settings,
   ShieldAlert,
   UserCheck,
@@ -20,6 +21,7 @@ import { formatDateTimeFr, formatFcfa, ROLE_LABELS } from '../utils/format';
 export type NavSection =
   | 'dashboard'
   | 'scolarite'
+  | 'reinscriptions'
   | 'recouvrement'
   | 'notes'
   | 'secretariat'
@@ -52,6 +54,17 @@ export const DashboardView: React.FC<{
           return { allowed: true, modeLabel: 'Consulter', required: '' };
         }
         return { allowed: false, modeLabel: 'Non autorisé', required: 'Scolarité / Caisse' };
+      case 'reinscriptions':
+        if (role === 'scolarite') {
+          return { allowed: true, modeLabel: 'Réinscrire & promouvoir', required: '' };
+        }
+        if (role === 'caisse') {
+          return { allowed: true, modeLabel: 'Consulter & encaisser', required: '' };
+        }
+        if (role === 'secretariat') {
+          return { allowed: true, modeLabel: 'Consulter', required: '' };
+        }
+        return { allowed: false, modeLabel: 'Non autorisé', required: 'Scolarité' };
       case 'recouvrement':
         if (role === 'caisse' || role === 'scolarite') {
           return { allowed: true, modeLabel: 'Relancer & encaisser', required: '' };
@@ -126,6 +139,18 @@ export const DashboardView: React.FC<{
       badgeCount:
         role === 'caisse' || role === 'direction' || role === 'admin'
           ? summary.pendingNotificationsCount
+          : undefined,
+    },
+    {
+      id: 'reinscriptions',
+      title: 'Réinscriptions & Passages',
+      subtitle: 'Reconduction sans ressaisie, passage de classe en lot, solde antérieur et attestations.',
+      metricLabel: 'Dossiers année',
+      metricValue: `${summary.reinscritCount ?? 0} réinscrit(s) · ${summary.studentsToReinscrireCount ?? 0} en attente`,
+      icon: <RefreshCw className="w-5 h-5 text-blue-900" />,
+      badgeCount:
+        role === 'scolarite' || role === 'direction' || role === 'admin'
+          ? summary.studentsToReinscrireCount
           : undefined,
     },
     {

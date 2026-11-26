@@ -439,6 +439,34 @@ export interface StudentRecoveryProfile {
   installmentBreakdown: StudentInstallmentBreakdown[];
 }
 
+export type ReenrollmentDecision =
+  | 'passage'
+  | 'redoublement'
+  | 'changement_cycle'
+  | 'transfert_programme';
+
+export interface ReenrollmentRecord {
+  id: string;
+  studentId: string;
+  cardId: string;
+  fromAcademicYear: string;
+  toAcademicYear: string;
+  fromCycle: SchoolCycle;
+  toCycle: SchoolCycle;
+  fromProgram: SchoolProgram;
+  toProgram: SchoolProgram;
+  fromClassId: string | null;
+  toClassId: string | null;
+  decision: ReenrollmentDecision;
+  previousBalanceFcfa: number;
+  reinscriptionFeeFcfa: number;
+  parentPhone: string;
+  parentEmail?: string;
+  notes?: string;
+  reinscritAt: string;
+  reinscritBy: string;
+}
+
 export interface SchoolDatabase {
   settings: SchoolSettings;
   users: UserAccount[];
@@ -455,6 +483,7 @@ export interface SchoolDatabase {
   paymentNotifications: PaymentNotification[];
   payments: Payment[];
   collectionReminders?: CollectionReminder[];
+  reenrollments?: ReenrollmentRecord[];
   attendanceLogs: AttendanceLog[];
   grades: Grade[];
   bulletins: Bulletin[];
@@ -468,6 +497,7 @@ export interface SchoolDatabase {
     archivesSeeded?: boolean;
     gradeWorkflowSeeded?: boolean;
     collectionRemindersSeeded?: boolean;
+    reinscriptionsSeeded?: boolean;
   };
 }
 
@@ -490,4 +520,6 @@ export interface DashboardSummary {
   overdueStudentsCount?: number;
   activeMoratoiresCount?: number;
   pendingFollowUpsCount?: number;
+  studentsToReinscrireCount?: number;
+  reinscritCount?: number;
 }

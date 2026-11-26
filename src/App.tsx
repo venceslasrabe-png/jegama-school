@@ -12,6 +12,7 @@ import {
   Lock,
   LogOut,
   Menu,
+  RefreshCw,
   Settings,
   Users,
   X,
@@ -35,6 +36,7 @@ const SESSION_KEY = 'jegama_session_user';
 type MenuKey =
   | 'dashboard'
   | 'eleves'
+  | 'reinscriptions'
   | 'caisse'
   | 'recouvrement'
   | 'classes'
@@ -162,7 +164,9 @@ export default function App() {
     if (r === 'parent') return key === 'parent';
     if (key === 'dashboard') return true;
     if (r === 'enseignant') return key === 'notes';
-    if (key === 'eleves') return r === 'scolarite' || r === 'caisse' || r === 'secretariat';
+    if (key === 'eleves' || key === 'reinscriptions') {
+      return r === 'scolarite' || r === 'caisse' || r === 'secretariat';
+    }
     if (key === 'caisse' || key === 'recouvrement') return r === 'scolarite' || r === 'caisse';
     if (key === 'classes' || key === 'bulletins') return r === 'secretariat';
     if (key === 'notes') return r === 'secretariat' || r === 'scolarite';
@@ -191,6 +195,18 @@ export default function App() {
       icon: (active) => (
         <Users className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
       ),
+    },
+    {
+      id: 'reinscriptions',
+      label: 'Réinscriptions',
+      icon: (active) => (
+        <RefreshCw className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
+      ),
+      badge:
+        (session.role === 'scolarite' || session.role === 'admin' || session.role === 'direction') &&
+        appState
+          ? appState.summary.studentsToReinscrireCount
+          : undefined,
     },
     {
       id: 'classes',
@@ -293,6 +309,7 @@ export default function App() {
 
   const handleDashboardNavigate = (sec: NavSection) => {
     if (sec === 'scolarite') setActiveMenu(session.role === 'caisse' ? 'caisse' : 'eleves');
+    else if (sec === 'reinscriptions') setActiveMenu('reinscriptions');
     else if (sec === 'recouvrement') setActiveMenu('recouvrement');
     else if (sec === 'notes') setActiveMenu('notes');
     else if (sec === 'secretariat') setActiveMenu('bulletins');
@@ -578,16 +595,21 @@ export default function App() {
                   onNavigate={handleDashboardNavigate}
                 />
               )}
-              {(activeMenu === 'eleves' || activeMenu === 'caisse' || activeMenu === 'recouvrement') && (
+              {(activeMenu === 'eleves' ||
+                activeMenu === 'reinscriptions' ||
+                activeMenu === 'caisse' ||
+                activeMenu === 'recouvrement') && (
                 <ScolariteView
                   state={appState}
                   session={session}
                   initialTab={
-                    activeMenu === 'recouvrement'
-                      ? 'recouvrement'
-                      : activeMenu === 'caisse'
-                        ? 'caisse'
-                        : 'dossiers'
+                    activeMenu === 'reinscriptions'
+                      ? 'reinscriptions'
+                      : activeMenu === 'recouvrement'
+                        ? 'recouvrement'
+                        : activeMenu === 'caisse'
+                          ? 'caisse'
+                          : 'dossiers'
                   }
                   onOpenNotesValidation={() => setActiveMenu('notes')}
                   onRefresh={() => fetchState(session)}

@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from 'react';
 import { BookOpen, CalendarDays, FileText, Printer } from 'lucide-react';
 import type { AppState, SessionUser } from '../api';
-import type { Bulletin } from '../types';
+import type { Bulletin, ReenrollmentRecord } from '../types';
 import { formatDateFr, formatTimeFr } from '../utils/format';
-import { BulletinModal, StudentAvatar } from './PrintableDocs';
+import { BulletinModal, ReinscriptionCertificateModal, StudentAvatar } from './PrintableDocs';
 
 export const ParentView: React.FC<{
   state: AppState;
@@ -24,11 +24,20 @@ export const ParentView: React.FC<{
   const [activeTab, setActiveTab] = useState<'presences' | 'notes' | 'bulletins'>('presences');
   const [selectedPeriodId, setSelectedPeriodId] = useState(state.periods[0]?.id || '');
   const [bulletinModal, setBulletinModal] = useState<Bulletin | null>(null);
+  const [reinscriptionCert, setReinscriptionCert] = useState<ReenrollmentRecord | null>(null);
 
   const student =
     availableStudents.find((s) => s.id === selectedStudentId) || availableStudents[0];
 
   const schoolClass = state.classes.find((c) => c.id === student?.classId);
+
+  const latestReenrollment = useMemo(() => {
+    if (!student) return null;
+    const records = (state.reenrollments || [])
+      .filter((r) => r.studentId === student.id)
+      .sort((a, b) => new Date(b.reinscritAt).getTime() - new Date(a.reinscritAt).getTime());
+    return records[0] || null;
+  }, [state.reenrollments, student]);
 
   const studentAttendance = useMemo(() => {
     if (!student) return [];
@@ -117,28 +126,57 @@ export const ParentView: React.FC<{
               <span className="font-mono font-semibold text-blue-950">{student.cardId}</span>
               {' · '}
               {schoolClass?.name || student.cycle} · Programme {student.program}
+              {' · '}
+              <span
+                className={`font-semibold ${
+                  student.status === 'reinscrit'
+                    ? 'text-emerald-700'
+                    : student.status === 'archive'
+                      ? 'text-amber-700'
+                      : 'text-blue-900'
+                }`}
+              >
+                {student.status === 'reinscrit'
+                  ? `Réinscrit (${student.academicYear})`
+                  : student.status === 'archive'
+                    ? 'À réinscrire'
+                    : `Inscrit (${student.academicYear})`}
+              </span>
             </div>
           </div>
         </div>
 
-        {availableStudents.length > 1 && (
-          <div className="w-full sm:w-auto">
-            <label className="block text-[11px] font-semibold text-slate-500 mb-1">
-              Basculer d’enfant ({availableStudents.length})
-            </label>
-            <select
-              value={student.id}
-              onChange={(e) => setSelectedStudentId(e.target.value)}
-              className="w-full sm:w-auto px-3.5 py-2 text-sm font-medium border border-slate-300 rounded-lg bg-white"
+        <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-end">
+          {latestReenrollment && (
+            <button
+              type="button"
+              onClick={() => setReinscriptionCert(latestReenrollment)}
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-[#0B1933] bg-[#E5A923] hover:bg-[#d89b18] rounded-lg transition-colors whitespace-nowrap"
             >
-              {availableStudents.map((child) => (
-                <option key={child.id} value={child.id}>
-                  {child.firstName} {child.lastName} ({child.cardId})
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+              <Printer className="w-3.5 h-3.5" />
+              Attestation de réinscription
+            </button>
+          )}
+
+          {availableStudents.length > 1 && (
+            <div className="w-full sm:w-auto">
+              <label className="block text-[11px] font-semibold text-slate-500 mb-1">
+                Basculer d’enfant ({availableStudents.length})
+              </label>
+              <select
+                value={student.id}
+                onChange={(e) => setSelectedStudentId(e.target.value)}
+                className="w-full sm:w-auto px-3.5 py-2 text-sm font-medium border border-slate-300 rounded-lg bg-white"
+              >
+                {availableStudents.map((child) => (
+                  <option key={child.id} value={child.id}>
+                    {child.firstName} {child.lastName} ({child.cardId})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Navigation Tabs */}
@@ -462,6 +500,18 @@ export const ParentView: React.FC<{
           grades={state.grades}
           settings={state.settings}
           onClose={() => setBulletinModal(null)}
+        />
+      )}
+
+      {reinscriptionCert && (
+        <ReinscriptionCertificateModal
+          record={reinscriptionCert}
+          student={student}
+          fromClass={state.classes.find((c) => c.id === reinscriptionCert.fromClassId)}
+          toClass={state.classes.find((c) => c.id === reinscriptionCert.toClassId)}
+          parent={state.parents.find((p) => p.id === student.parentId)}
+          settings={state.settings}
+          onClose={() => setReinscriptionCert(null)}
         />
       )}
     </div>

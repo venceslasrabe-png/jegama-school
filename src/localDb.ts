@@ -12,9 +12,11 @@ import {
   ensureArchiveSeedData,
   ensureGradeWorkflowData,
   ensureRecouvrementData,
+  ensureReinscriptionData,
   ensureTeacherSeedData,
   evaluateStudentAutoFollowUp,
   getDefaultCollectionAutomation,
+  getFeeForReinscription,
   getTeacherCumulativeHours,
   recalculateClassBulletins,
   runAutomaticOverdueNotifications,
@@ -36,6 +38,8 @@ import type {
   PaymentNotification,
   PayslipPaymentMethod,
   PayslipStatus,
+  ReenrollmentDecision,
+  ReenrollmentRecord,
   ReminderChannel,
   ReminderStatus,
   SchoolClass,
@@ -114,6 +118,7 @@ function hydrateDb(raw: SchoolDatabase | null): SchoolDatabase {
   ensureArchiveSeedData(raw);
   ensureGradeWorkflowData(raw);
   ensureRecouvrementData(raw);
+  ensureReinscriptionData(raw);
   return raw;
 }
 
@@ -463,46 +468,249 @@ export async function handleLocalApiRequest<T>(
   }
 
   const reinscrireMatch = path.match(/^\/api\/students\/([^/]+)\/reinscrire$/);
-  if (method === 'POST' && reinscrireMatch) {
+  if (method === 'POST' && reinscrireMatch && reinscrireMatch[1] !== 'reinscrire-batch') {
     const actor = assertRole(db, session, ['scolarite', 'admin']);
     const student = db.students.find((s) => s.id === reinscrireMatch[1]);
     if (!student) throw new Error('Élève introuvable.');
-    const { nextCycle, nextClassId, nextAcademicYear } = parseBody<{
+    const {
+      nextCycle,
+      nextProgram,
+      nextClassId,
+      nextAcademicYear,
+      decision,
+      parentPhone,
+      parentEmail,
+      parentAddress,
+      feeAmountOverride,
+      allowWithUnpaidBalance,
+      notes,
+    } = parseBody<{
       nextCycle?: Student['cycle'];
+      nextProgram?: Student['program'];
       nextClassId?: string | null;
       nextAcademicYear?: string;
+      decision?: ReenrollmentDecision;
+      parentPhone?: string;
+      parentEmail?: string;
+      parentAddress?: string;
+      feeAmountOverride?: number;
+      allowWithUnpaidBalance?: boolean;
+      notes?: string;
     }>(options);
+
+    const balance = computeStudentBalance(db, student);
+    if (balance.remaining > 0 && !allowWithUnpaidBalance) {
+      throw new Error(
+        `Solde antérieur impayé de ${balance.remaining.toLocaleString('fr-FR')} FCFA pour ${student.firstName} ${student.lastName}. Régularisez à la Caisse ou cochez l’autorisation exceptionnelle.`
+      );
+    }
+
+    const fromAcademicYear = student.academicYear;
+    const fromCycle = student.cycle;
+    const fromProgram = student.program;
+    const fromClassId = student.classId;
+
     if (nextCycle) student.cycle = nextCycle;
+    if (nextProgram) student.program = nextProgram;
     if (nextClassId !== undefined) student.classId = nextClassId;
-    student.academicYear = nextAcademicYear || db.settings.currentAcademicYear;
+    student.academicYear = (nextAcademicYear || db.settings.currentAcademicYear).trim();
     student.status = 'reinscrit';
 
-    const fee = db.feeGrid.find(
-      (f) => f.cycle === student.cycle && f.program === student.program
-    );
-    const amountExpected = fee?.installments?.[0]?.amount ?? 120000;
-    const notification: PaymentNotification = {
-      id: `notif-${Date.now()}`,
+    const parent = db.parents.find((p) => p.id === student.parentId);
+    if (parent) {
+      if (parentPhone !== undefined && parentPhone.trim()) {
+        parent.phone = parentPhone.trim();
+        parent.whatsappPhone = parentPhone.trim();
+      }
+      if (parentEmail !== undefined) {
+        parent.email = parentEmail.trim();
+      }
+      if (parentAddress !== undefined && parentAddress.trim()) {
+        parent.address = parentAddress.trim();
+      }
+    }
+
+    const defaultFee = getFeeForReinscription(db, student.cycle, student.program);
+    const amountExpected =
+      feeAmountOverride !== undefined && !Number.isNaN(Number(feeAmountOverride)) && Number(feeAmountOverride) >= 0
+        ? Math.round(Number(feeAmountOverride))
+        : defaultFee;
+
+    const now = new Date().toISOString();
+    const finalDecision: ReenrollmentDecision = decision || 'passage';
+    const reenrollment: ReenrollmentRecord = {
+      id: `reins-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
       studentId: student.id,
-      studentName: `${student.firstName} ${student.lastName}`,
       cardId: student.cardId,
-      amountExpected,
-      reason: `Réinscription ${student.academicYear} · ${student.cycle} (${student.program})`,
-      status: 'en_attente',
-      createdAt: new Date().toISOString(),
-      createdBy: actor.fullName,
+      fromAcademicYear,
+      toAcademicYear: student.academicYear,
+      fromCycle,
+      toCycle: student.cycle,
+      fromProgram,
+      toProgram: student.program,
+      fromClassId,
+      toClassId: student.classId,
+      decision: finalDecision,
+      previousBalanceFcfa: balance.remaining,
+      reinscriptionFeeFcfa: amountExpected,
+      parentPhone: parent?.phone || '',
+      parentEmail: parent?.email || '',
+      notes: (notes || '').trim(),
+      reinscritAt: now,
+      reinscritBy: actor.fullName,
     };
-    db.paymentNotifications.unshift(notification);
+    db.reenrollments = db.reenrollments || [];
+    db.reenrollments.unshift(reenrollment);
+
+    let notification: PaymentNotification | null = null;
+    if (amountExpected > 0) {
+      notification = {
+        id: `notif-${Date.now()}`,
+        studentId: student.id,
+        studentName: `${student.firstName} ${student.lastName}`,
+        cardId: student.cardId,
+        amountExpected,
+        reason: `Réinscription ${student.academicYear} · ${student.cycle} (${student.program})`,
+        status: 'en_attente',
+        createdAt: now,
+        createdBy: actor.fullName,
+      };
+      db.paymentNotifications.unshift(notification);
+    }
+
+    const toCls = db.classes.find((c) => c.id === student.classId);
     addAuditLog(
       db,
       actor,
       'Réinscription élève',
-      'Élève',
+      'Réinscription',
       student.cardId,
-      `Réinscription ${student.academicYear} sans ressaisie pour ${student.firstName} ${student.lastName}.`
+      `Réinscription ${student.academicYear} (${finalDecision}) pour ${student.firstName} ${student.lastName} -> ${student.cycle}${toCls ? ` / ${toCls.name}` : ''}. Frais Caisse : ${amountExpected.toLocaleString('fr-FR')} FCFA.`
     );
     await saveLocalDatabase(db);
-    return { student, notification } as T;
+    return { student, notification, reenrollment } as T;
+  }
+
+  if (method === 'POST' && path === '/api/students/reinscrire-batch') {
+    const actor = assertRole(db, session, ['scolarite', 'admin']);
+    const { entries, nextAcademicYear, skipUnpaid, notes } = parseBody<{
+      entries?: Array<{
+        studentId: string;
+        nextCycle?: Student['cycle'];
+        nextProgram?: Student['program'];
+        nextClassId?: string | null;
+        decision?: ReenrollmentDecision;
+        feeAmountOverride?: number;
+      }>;
+      nextAcademicYear?: string;
+      skipUnpaid?: boolean;
+      notes?: string;
+    }>(options);
+
+    if (!Array.isArray(entries) || entries.length === 0) {
+      throw new Error('Aucun élève sélectionné pour le passage de classe groupé.');
+    }
+
+    const targetYear = (nextAcademicYear || db.settings.currentAcademicYear).trim();
+    const nowMs = Date.now();
+    const now = new Date(nowMs).toISOString();
+    const reenrollments: ReenrollmentRecord[] = [];
+    const notifications: PaymentNotification[] = [];
+    let skippedUnpaidCount = 0;
+    db.reenrollments = db.reenrollments || [];
+
+    entries.forEach((entry, idx) => {
+      const student = db.students.find((s) => s.id === entry.studentId);
+      if (!student) return;
+
+      const balance = computeStudentBalance(db, student);
+      if (skipUnpaid && balance.remaining > 0) {
+        skippedUnpaidCount += 1;
+        return;
+      }
+
+      const fromAcademicYear = student.academicYear;
+      const fromCycle = student.cycle;
+      const fromProgram = student.program;
+      const fromClassId = student.classId;
+
+      if (entry.nextCycle) student.cycle = entry.nextCycle;
+      if (entry.nextProgram) student.program = entry.nextProgram;
+      if (entry.nextClassId !== undefined) student.classId = entry.nextClassId;
+      student.academicYear = targetYear;
+      student.status = 'reinscrit';
+
+      const defaultFee = getFeeForReinscription(db, student.cycle, student.program);
+      const amountExpected =
+        entry.feeAmountOverride !== undefined &&
+        !Number.isNaN(Number(entry.feeAmountOverride)) &&
+        Number(entry.feeAmountOverride) >= 0
+          ? Math.round(Number(entry.feeAmountOverride))
+          : defaultFee;
+
+      const parent = db.parents.find((p) => p.id === student.parentId);
+      const record: ReenrollmentRecord = {
+        id: `reins-batch-${nowMs}-${idx}`,
+        studentId: student.id,
+        cardId: student.cardId,
+        fromAcademicYear,
+        toAcademicYear: student.academicYear,
+        fromCycle,
+        toCycle: student.cycle,
+        fromProgram,
+        toProgram: student.program,
+        fromClassId,
+        toClassId: student.classId,
+        decision: entry.decision || 'passage',
+        previousBalanceFcfa: balance.remaining,
+        reinscriptionFeeFcfa: amountExpected,
+        parentPhone: parent?.phone || '',
+        parentEmail: parent?.email || '',
+        notes: (notes || 'Passage de classe en lot').trim(),
+        reinscritAt: now,
+        reinscritBy: actor.fullName,
+      };
+      db.reenrollments!.unshift(record);
+      reenrollments.push(record);
+
+      if (amountExpected > 0) {
+        const notif: PaymentNotification = {
+          id: `notif-batch-${nowMs}-${idx}`,
+          studentId: student.id,
+          studentName: `${student.firstName} ${student.lastName}`,
+          cardId: student.cardId,
+          amountExpected,
+          reason: `Réinscription ${student.academicYear} · ${student.cycle} (${student.program})`,
+          status: 'en_attente',
+          createdAt: now,
+          createdBy: actor.fullName,
+        };
+        db.paymentNotifications.unshift(notif);
+        notifications.push(notif);
+      }
+    });
+
+    if (reenrollments.length === 0 && skippedUnpaidCount > 0) {
+      throw new Error(
+        `Aucun élève réinscrit : ${skippedUnpaidCount} dossier(s) sélectionné(s) présentent un solde antérieur impayé.`
+      );
+    }
+
+    addAuditLog(
+      db,
+      actor,
+      'Réinscription groupée / Passage de classe',
+      'Réinscription',
+      targetYear,
+      `${reenrollments.length} élève(s) réinscrit(s) pour ${targetYear}${skippedUnpaidCount > 0 ? ` (${skippedUnpaidCount} ignoré(s) pour solde impayé)` : ''}.`
+    );
+    await saveLocalDatabase(db);
+    return {
+      reinscritCount: reenrollments.length,
+      skippedUnpaidCount,
+      reenrollments,
+      notifications,
+    } as T;
   }
 
   const replaceCardMatch = path.match(/^\/api\/students\/([^/]+)\/replace-card$/);
