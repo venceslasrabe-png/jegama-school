@@ -18,6 +18,7 @@ import {
   createSeedDatabase,
   distributeFeeInstallments,
   ensureArchiveSeedData,
+  ensureClassFeeGridData,
   ensureReinscriptionData,
   ensureTeacherSeedData,
   evaluateStudentAutoFollowUp,
@@ -26,6 +27,7 @@ import {
   getTeacherCumulativeHours,
   loadDatabase,
   recalculateClassBulletins,
+  resolveFeeGridItem,
   runAutomaticOverdueNotifications,
   saveDatabase,
 } from './server/db';
@@ -413,10 +415,9 @@ async function startServer() {
 
     db.students.push(student);
 
-    // RG-02 & RF-SCO-06: Automatic Caisse payment notification
-    const fee = db.feeGrid.find(
-      (f) => f.cycle === student.cycle && f.program === student.program
-    );
+    // RG-02 & RF-SCO-06: Automatic Caisse payment notification (resolved per class first)
+    const fee = resolveFeeGridItem(db, student);
+    const enrolledCls = student.classId ? db.classes.find((c) => c.id === student.classId) : undefined;
     const expectedFirstTranche =
       fee?.installments?.[0]?.amount ?? (fee ? fee.registrationFee : 100000);
 
@@ -426,7 +427,7 @@ async function startServer() {
       studentName: `${student.firstName} ${student.lastName}`,
       cardId: student.cardId,
       amountExpected: expectedFirstTranche,
-      reason: `Inscription ${student.cycle} (Programme ${student.program}) · 1ère Tranche`,
+      reason: `Inscription ${enrolledCls ? `${enrolledCls.name} · ` : ''}${student.cycle} (Programme ${student.program}) · 1ère Tranche`,
       status: 'en_attente',
       createdAt: new Date().toISOString(),
       createdBy: actor.fullName,
@@ -549,7 +550,7 @@ async function startServer() {
       }
     }
 
-    const defaultFee = getFeeForReinscription(db, student.cycle, student.program);
+    const defaultFee = getFeeForReinscription(db, student.cycle, student.program, student.classId);
     const amountExpected =
       feeAmountOverride !== undefined && !Number.isNaN(Number(feeAmountOverride)) && Number(feeAmountOverride) >= 0
         ? Math.round(Number(feeAmountOverride))
@@ -662,7 +663,7 @@ async function startServer() {
       student.academicYear = targetYear;
       student.status = 'reinscrit';
 
-      const defaultFee = getFeeForReinscription(db, student.cycle, student.program);
+      const defaultFee = getFeeForReinscription(db, student.cycle, student.program, student.classId);
       const amountExpected =
         entry.feeAmountOverride !== undefined &&
         !Number.isNaN(Number(entry.feeAmountOverride)) &&
@@ -787,7 +788,7 @@ async function startServer() {
     res.json({ student });
   });
 
-  // Fee Grid configuration (Update, Create, Bulk Update, Delete)
+  // Fee Grid configuration (Class-level & Cycle fallback: Update, Create, Bulk Update, Delete)
   app.put('/api/fee-grid/:id', requireRole(['scolarite', 'admin']), (req, res) => {
     const db = loadDatabase();
     const actor = getActor(req, db)!;
@@ -798,17 +799,39 @@ async function startServer() {
     }
     const existing = db.feeGrid[idx];
     const body = req.body as Partial<FeeGridItem>;
-    const nextCycle = body.cycle || existing.cycle;
-    const nextProgram = body.program || existing.program;
-    if (
-      db.feeGrid.some(
-        (f, i) => i !== idx && f.cycle === nextCycle && f.program === nextProgram
-      )
-    ) {
-      res.status(400).json({
-        error: `Une formule existe déjà pour ${nextCycle} (${nextProgram}).`,
-      });
-      return;
+
+    const nextClassId = body.classId !== undefined ? body.classId || null : existing.classId || null;
+    let nextClassName = existing.className;
+    let nextCycle = body.cycle || existing.cycle;
+    let nextProgram = body.program || existing.program;
+
+    if (nextClassId) {
+      const cls = db.classes.find((c) => c.id === nextClassId);
+      if (!cls) {
+        res.status(400).json({ error: 'Classe sélectionnée introuvable.' });
+        return;
+      }
+      if (db.feeGrid.some((f, i) => i !== idx && f.classId === nextClassId)) {
+        res.status(400).json({
+          error: `Un tarif spécifique existe déjà pour la classe ${cls.name}.`,
+        });
+        return;
+      }
+      nextClassName = cls.name;
+      nextCycle = cls.cycle;
+      nextProgram = cls.program;
+    } else {
+      nextClassName = undefined;
+      if (
+        db.feeGrid.some(
+          (f, i) => i !== idx && !f.classId && f.cycle === nextCycle && f.program === nextProgram
+        )
+      ) {
+        res.status(400).json({
+          error: `Un barème par défaut existe déjà pour ${nextCycle} (${nextProgram}).`,
+        });
+        return;
+      }
     }
 
     const regFee =
@@ -831,6 +854,8 @@ async function startServer() {
     const now = new Date().toISOString();
     db.feeGrid[idx] = {
       ...existing,
+      classId: nextClassId,
+      className: nextClassName,
       cycle: nextCycle,
       program: nextProgram,
       registrationFee: Math.round(regFee),
@@ -840,13 +865,16 @@ async function startServer() {
       updatedBy: actor.fullName,
     };
 
+    const scopeLabel = nextClassName
+      ? `Classe ${nextClassName} (${nextCycle} · ${nextProgram})`
+      : `${nextCycle} (${nextProgram})`;
     addAuditLog(
       db,
       actor,
       'Modification grille tarifaire',
       'Tarifs',
       db.feeGrid[idx].id,
-      `${db.feeGrid[idx].cycle} (${db.feeGrid[idx].program}) : Inscription ${db.feeGrid[idx].registrationFee.toLocaleString('fr-FR')} FCFA, Scolarité ${db.feeGrid[idx].annualTuition.toLocaleString('fr-FR')} FCFA (${db.feeGrid[idx].installments.length} tranches).`
+      `${scopeLabel} : Inscription ${db.feeGrid[idx].registrationFee.toLocaleString('fr-FR')} FCFA, Scolarité ${db.feeGrid[idx].annualTuition.toLocaleString('fr-FR')} FCFA (${db.feeGrid[idx].installments.length} tranches).`
     );
     saveDatabase(db);
     res.json({ feeGridItem: db.feeGrid[idx] });
@@ -856,15 +884,38 @@ async function startServer() {
     const db = loadDatabase();
     const actor = getActor(req, db)!;
     const body = req.body as Partial<FeeGridItem>;
-    if (!body.cycle || !body.program) {
-      res.status(400).json({ error: 'Le cycle et le programme sont requis.' });
-      return;
-    }
-    if (db.feeGrid.some((f) => f.cycle === body.cycle && f.program === body.program)) {
-      res.status(400).json({
-        error: `Une formule tarifaire existe déjà pour ${body.cycle} (${body.program}).`,
-      });
-      return;
+
+    const classId = body.classId || null;
+    let className: string | undefined;
+    let cycle = body.cycle;
+    let program = body.program;
+
+    if (classId) {
+      const cls = db.classes.find((c) => c.id === classId);
+      if (!cls) {
+        res.status(400).json({ error: 'Classe sélectionnée introuvable.' });
+        return;
+      }
+      if (db.feeGrid.some((f) => f.classId === classId)) {
+        res.status(400).json({
+          error: `Un tarif est déjà défini pour la classe ${cls.name}.`,
+        });
+        return;
+      }
+      className = cls.name;
+      cycle = cls.cycle;
+      program = cls.program;
+    } else {
+      if (!cycle || !program) {
+        res.status(400).json({ error: 'La classe ou le couple cycle/programme est requis.' });
+        return;
+      }
+      if (db.feeGrid.some((f) => !f.classId && f.cycle === cycle && f.program === program)) {
+        res.status(400).json({
+          error: `Un barème par défaut existe déjà pour ${cycle} (${program}).`,
+        });
+        return;
+      }
     }
 
     const registrationFee = Math.max(0, Math.round(Number(body.registrationFee || 0)));
@@ -880,9 +931,11 @@ async function startServer() {
 
     const now = new Date().toISOString();
     const created: FeeGridItem = {
-      id: `fee-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-      cycle: body.cycle,
-      program: body.program,
+      id: classId ? `fee-${classId}` : `fee-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      classId,
+      className,
+      cycle: cycle!,
+      program: program!,
       registrationFee,
       annualTuition,
       installments,
@@ -890,14 +943,19 @@ async function startServer() {
       updatedBy: actor.fullName,
     };
 
-    db.feeGrid.push(created);
+    if (classId) {
+      db.feeGrid.unshift(created);
+    } else {
+      db.feeGrid.push(created);
+    }
+    const scopeLabel = className ? `Classe ${className} (${cycle} · ${program})` : `${cycle} (${program})`;
     addAuditLog(
       db,
       actor,
       'Création formule tarifaire',
       'Tarifs',
       created.id,
-      `Nouvelle formule ${created.cycle} (${created.program}) : Total ${(created.registrationFee + created.annualTuition).toLocaleString('fr-FR')} FCFA.`
+      `Nouveau tarif ${scopeLabel} : Total ${(created.registrationFee + created.annualTuition).toLocaleString('fr-FR')} FCFA.`
     );
     saveDatabase(db);
     res.status(201).json({ feeGridItem: created });
@@ -1025,12 +1083,18 @@ async function startServer() {
       return;
     }
     const target = db.feeGrid[idx];
-    const activeStudentsUsing = db.students.filter(
-      (s) => s.status !== 'archive' && s.cycle === target.cycle && s.program === target.program
-    );
+    const activeStudentsUsing = target.classId
+      ? db.students.filter((s) => s.status !== 'archive' && s.classId === target.classId)
+      : db.students.filter(
+          (s) =>
+            s.status !== 'archive' &&
+            s.cycle === target.cycle &&
+            s.program === target.program &&
+            (!s.classId || !db.feeGrid.some((f) => f.classId === s.classId))
+        );
     if (activeStudentsUsing.length > 0) {
       res.status(400).json({
-        error: `Suppression impossible : ${activeStudentsUsing.length} élève(s) actif(s) dépendent du tarif ${target.cycle} (${target.program}).`,
+        error: `Suppression impossible : ${activeStudentsUsing.length} élève(s) actif(s) dépendent du tarif ${target.className ? `de la classe ${target.className}` : `${target.cycle} (${target.program})`}.`,
       });
       return;
     }
@@ -1042,7 +1106,7 @@ async function startServer() {
       'Suppression formule tarifaire',
       'Tarifs',
       target.id,
-      `Formule supprimée : ${target.cycle} (${target.program}).`
+      `Formule supprimée : ${target.className ? `${target.className} (${target.cycle})` : `${target.cycle} (${target.program})`}.`
     );
     saveDatabase(db);
     res.json({ deletedId: target.id });
@@ -1448,7 +1512,10 @@ async function startServer() {
   app.post('/api/classes', requireRole(['secretariat', 'admin']), (req, res) => {
     const db = loadDatabase();
     const actor = getActor(req, db)!;
-    const body = req.body as Partial<SchoolClass>;
+    const body = req.body as Partial<SchoolClass> & {
+      registrationFee?: number;
+      annualTuition?: number;
+    };
     if (!body.name || !body.cycle || !body.program) {
       res.status(400).json({ error: 'Nom, cycle et programme requis.' });
       return;
@@ -1463,9 +1530,41 @@ async function startServer() {
       headTeacher: (body.headTeacher || 'À désigner').trim(),
     };
     db.classes.push(cls);
-    addAuditLog(db, actor, 'Création classe', 'Classe', cls.id, `${cls.name} (${cls.cycle} · ${cls.program})`);
+
+    // Auto-provision class tariff in feeGrid so every class has its own tariff
+    const baseFee = resolveFeeGridItem(db, { cycle: cls.cycle, program: cls.program });
+    const regFee =
+      body.registrationFee !== undefined && Number(body.registrationFee) >= 0
+        ? Math.round(Number(body.registrationFee))
+        : baseFee?.registrationFee ?? 45000;
+    const annualTuition =
+      body.annualTuition !== undefined && Number(body.annualTuition) >= 0
+        ? Math.round(Number(body.annualTuition))
+        : baseFee?.annualTuition ?? 270000;
+    const classFee: FeeGridItem = {
+      id: `fee-${cls.id}`,
+      classId: cls.id,
+      className: cls.name,
+      cycle: cls.cycle,
+      program: cls.program,
+      registrationFee: regFee,
+      annualTuition,
+      installments: distributeFeeInstallments(regFee, annualTuition, baseFee?.installments),
+      updatedAt: new Date().toISOString(),
+      updatedBy: actor.fullName,
+    };
+    db.feeGrid.unshift(classFee);
+
+    addAuditLog(
+      db,
+      actor,
+      'Création classe',
+      'Classe',
+      cls.id,
+      `${cls.name} (${cls.cycle} · ${cls.program}) — Tarif classe : ${(regFee + annualTuition).toLocaleString('fr-FR')} FCFA`
+    );
     saveDatabase(db);
-    res.status(201).json({ schoolClass: cls });
+    res.status(201).json({ schoolClass: cls, feeGridItem: classFee });
   });
 
   app.post('/api/subjects', requireRole(['secretariat', 'admin']), (req, res) => {
@@ -2285,6 +2384,7 @@ async function startServer() {
     ensureTeacherSeedData(payload);
     ensureArchiveSeedData(payload);
     ensureReinscriptionData(payload);
+    ensureClassFeeGridData(payload);
     addAuditLog(
       payload,
       actor,

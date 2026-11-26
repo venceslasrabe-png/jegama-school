@@ -20,6 +20,7 @@ import {
   XCircle,
 } from 'lucide-react';
 import { apiRequest, type AppState, type SessionUser } from '../api';
+import { resolveFeeGridItem } from '../shared/schoolEngine';
 import type {
   Bulletin,
   Grade,
@@ -30,7 +31,7 @@ import type {
   Student,
 } from '../types';
 import { downloadGradesExcelTemplate, parseGradesExcelFile } from '../utils/excel';
-import { CYCLES, formatDateFr, formatDateTimeFr, PROGRAMS } from '../utils/format';
+import { CYCLES, formatDateFr, formatDateTimeFr, formatFcfa, PROGRAMS } from '../utils/format';
 import { BulletinModal, StudentAvatar, StudentCardModal } from './PrintableDocs';
 
 type SecretariatTab = 'notes' | 'bulletins' | 'classes' | 'periodes';
@@ -143,6 +144,8 @@ export const SecretariatView: React.FC<{
     room: '',
     capacity: 32,
     headTeacher: '',
+    registrationFee: 45000,
+    annualTuition: 270000,
   });
   const [subjectForm, setSubjectForm] = useState({
     code: '',
@@ -872,6 +875,19 @@ export const SecretariatView: React.FC<{
     }
   };
 
+  const openCreateClassModal = () => {
+    const baseFee = resolveFeeGridItem(
+      { feeGrid: state.feeGrid },
+      { cycle: classForm.cycle, program: classForm.program }
+    );
+    setClassForm((prev) => ({
+      ...prev,
+      registrationFee: baseFee?.registrationFee ?? 45000,
+      annualTuition: baseFee?.annualTuition ?? 270000,
+    }));
+    setShowClassModal(true);
+  };
+
   const handleCreateClass = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -879,8 +895,8 @@ export const SecretariatView: React.FC<{
       await apiRequest('/api/classes', { method: 'POST', body: JSON.stringify(classForm) }, session);
       await onRefresh();
       setShowClassModal(false);
-      setClassForm({ ...classForm, name: '', room: '', headTeacher: '' });
-      setFeedback({ type: 'ok', text: 'Classe créée avec succès.' });
+      setClassForm((prev) => ({ ...prev, name: '', room: '', headTeacher: '' }));
+      setFeedback({ type: 'ok', text: 'Classe et son tarif créés avec succès.' });
     } catch (err) {
       setFeedback({ type: 'err', text: err instanceof Error ? err.message : 'Erreur.' });
     } finally {
@@ -2488,7 +2504,7 @@ export const SecretariatView: React.FC<{
                 {!isReadOnly && (
                   <button
                     type="button"
-                    onClick={() => setShowClassModal(true)}
+                    onClick={openCreateClassModal}
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-900 rounded-lg whitespace-nowrap"
                   >
                     <Plus className="w-3.5 h-3.5" />
@@ -2501,6 +2517,10 @@ export const SecretariatView: React.FC<{
                   const count = state.students.filter(
                     (s) => s.classId === cls.id && s.status !== 'archive'
                   ).length;
+                  const clsFee = resolveFeeGridItem(
+                    { feeGrid: state.feeGrid },
+                    { classId: cls.id, cycle: cls.cycle, program: cls.program }
+                  );
                   return (
                     <div key={cls.id} className="py-3 flex items-center justify-between gap-4">
                       <div className="min-w-0">
@@ -2509,8 +2529,15 @@ export const SecretariatView: React.FC<{
                           {cls.cycle} · {cls.program} · {cls.room} · PP : {cls.headTeacher}
                         </div>
                       </div>
-                      <div className="font-mono text-xs font-semibold text-slate-800 tabular-nums shrink-0">
-                        {count} / {cls.capacity}
+                      <div className="text-right shrink-0">
+                        <div className="font-mono text-xs font-semibold text-slate-800 tabular-nums">
+                          {count} / {cls.capacity}
+                        </div>
+                        {clsFee && (
+                          <div className="font-mono text-[11px] text-blue-950 tabular-nums">
+                            {formatFcfa(clsFee.registrationFee + clsFee.annualTuition)} / an
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -2746,7 +2773,19 @@ export const SecretariatView: React.FC<{
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <select
                   value={classForm.cycle}
-                  onChange={(e) => setClassForm({ ...classForm, cycle: e.target.value as SchoolCycle })}
+                  onChange={(e) => {
+                    const cycle = e.target.value as SchoolCycle;
+                    const baseFee = resolveFeeGridItem(
+                      { feeGrid: state.feeGrid },
+                      { cycle, program: classForm.program }
+                    );
+                    setClassForm({
+                      ...classForm,
+                      cycle,
+                      registrationFee: baseFee?.registrationFee ?? classForm.registrationFee,
+                      annualTuition: baseFee?.annualTuition ?? classForm.annualTuition,
+                    });
+                  }}
                   className="px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
                 >
                   {CYCLES.map((c) => (
@@ -2755,7 +2794,19 @@ export const SecretariatView: React.FC<{
                 </select>
                 <select
                   value={classForm.program}
-                  onChange={(e) => setClassForm({ ...classForm, program: e.target.value as SchoolProgram })}
+                  onChange={(e) => {
+                    const program = e.target.value as SchoolProgram;
+                    const baseFee = resolveFeeGridItem(
+                      { feeGrid: state.feeGrid },
+                      { cycle: classForm.cycle, program }
+                    );
+                    setClassForm({
+                      ...classForm,
+                      program,
+                      registrationFee: baseFee?.registrationFee ?? classForm.registrationFee,
+                      annualTuition: baseFee?.annualTuition ?? classForm.annualTuition,
+                    });
+                  }}
                   className="px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
                 >
                   {PROGRAMS.map((p) => (
@@ -2777,6 +2828,40 @@ export const SecretariatView: React.FC<{
                 onChange={(e) => setClassForm({ ...classForm, headTeacher: e.target.value })}
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
               />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Inscription classe (FCFA)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={500}
+                    required
+                    value={classForm.registrationFee}
+                    onChange={(e) =>
+                      setClassForm({ ...classForm, registrationFee: Number(e.target.value) })
+                    }
+                    className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Scolarité annuelle (FCFA)
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step={500}
+                    required
+                    value={classForm.annualTuition}
+                    onChange={(e) =>
+                      setClassForm({ ...classForm, annualTuition: Number(e.target.value) })
+                    }
+                    className="w-full px-3 py-2 text-sm font-mono tabular-nums border border-slate-300 rounded-lg"
+                  />
+                </div>
+              </div>
             </div>
             <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
               <button

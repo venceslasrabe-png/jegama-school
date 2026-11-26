@@ -12,6 +12,7 @@ import {
   createSeedDatabase,
   distributeFeeInstallments,
   ensureArchiveSeedData,
+  ensureClassFeeGridData,
   ensureGradeWorkflowData,
   ensureRecouvrementData,
   ensureReinscriptionData,
@@ -21,6 +22,7 @@ import {
   getFeeForReinscription,
   getTeacherCumulativeHours,
   recalculateClassBulletins,
+  resolveFeeGridItem,
   runAutomaticOverdueNotifications,
   sanitizeDbForClient,
   type ActorContext,
@@ -121,6 +123,7 @@ function hydrateDb(raw: SchoolDatabase | null): SchoolDatabase {
   ensureGradeWorkflowData(raw);
   ensureRecouvrementData(raw);
   ensureReinscriptionData(raw);
+  ensureClassFeeGridData(raw);
   return raw;
 }
 
@@ -400,9 +403,8 @@ export async function handleLocalApiRequest<T>(
     };
     db.students.push(student);
 
-    const fee = db.feeGrid.find(
-      (f) => f.cycle === student.cycle && f.program === student.program
-    );
+    const fee = resolveFeeGridItem(db, student);
+    const enrolledCls = student.classId ? db.classes.find((c) => c.id === student.classId) : undefined;
     const expectedFirstTranche =
       fee?.installments?.[0]?.amount ?? (fee ? fee.registrationFee : 100000);
 
@@ -412,7 +414,7 @@ export async function handleLocalApiRequest<T>(
       studentName: `${student.firstName} ${student.lastName}`,
       cardId: student.cardId,
       amountExpected: expectedFirstTranche,
-      reason: `Inscription ${student.cycle} (Programme ${student.program}) · 1ère Tranche`,
+      reason: `Inscription ${enrolledCls ? `${enrolledCls.name} · ` : ''}${student.cycle} (Programme ${student.program}) · 1ère Tranche`,
       status: 'en_attente',
       createdAt: new Date().toISOString(),
       createdBy: actor.fullName,
@@ -532,7 +534,7 @@ export async function handleLocalApiRequest<T>(
       }
     }
 
-    const defaultFee = getFeeForReinscription(db, student.cycle, student.program);
+    const defaultFee = getFeeForReinscription(db, student.cycle, student.program, student.classId);
     const amountExpected =
       feeAmountOverride !== undefined && !Number.isNaN(Number(feeAmountOverride)) && Number(feeAmountOverride) >= 0
         ? Math.round(Number(feeAmountOverride))
@@ -642,7 +644,7 @@ export async function handleLocalApiRequest<T>(
       student.academicYear = targetYear;
       student.status = 'reinscrit';
 
-      const defaultFee = getFeeForReinscription(db, student.cycle, student.program);
+      const defaultFee = getFeeForReinscription(db, student.cycle, student.program, student.classId);
       const amountExpected =
         entry.feeAmountOverride !== undefined &&
         !Number.isNaN(Number(entry.feeAmountOverride)) &&
@@ -864,12 +866,29 @@ export async function handleLocalApiRequest<T>(
   if (method === 'POST' && path === '/api/fee-grid') {
     const actor = assertRole(db, session, ['scolarite', 'admin']);
     const body = parseBody<Partial<FeeGridItem>>(options);
-    if (!body.cycle || !body.program) {
-      throw new Error('Le cycle et le programme sont requis.');
+    const classId = body.classId || null;
+    let className: string | undefined;
+    let cycle = body.cycle;
+    let program = body.program;
+
+    if (classId) {
+      const cls = db.classes.find((c) => c.id === classId);
+      if (!cls) throw new Error('Classe sélectionnée introuvable.');
+      if (db.feeGrid.some((f) => f.classId === classId)) {
+        throw new Error(`Un tarif est déjà défini pour la classe ${cls.name}.`);
+      }
+      className = cls.name;
+      cycle = cls.cycle;
+      program = cls.program;
+    } else {
+      if (!cycle || !program) {
+        throw new Error('La classe ou le couple cycle/programme est requis.');
+      }
+      if (db.feeGrid.some((f) => !f.classId && f.cycle === cycle && f.program === program)) {
+        throw new Error(`Un barème par défaut existe déjà pour ${cycle} (${program}).`);
+      }
     }
-    if (db.feeGrid.some((f) => f.cycle === body.cycle && f.program === body.program)) {
-      throw new Error(`Une formule tarifaire existe déjà pour ${body.cycle} (${body.program}).`);
-    }
+
     const registrationFee = Math.max(0, Math.round(Number(body.registrationFee || 0)));
     const annualTuition = Math.max(0, Math.round(Number(body.annualTuition || 0)));
     const installments =
@@ -883,23 +902,30 @@ export async function handleLocalApiRequest<T>(
 
     const now = new Date().toISOString();
     const created: FeeGridItem = {
-      id: `fee-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-      cycle: body.cycle,
-      program: body.program,
+      id: classId ? `fee-${classId}` : `fee-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+      classId,
+      className,
+      cycle: cycle!,
+      program: program!,
       registrationFee,
       annualTuition,
       installments,
       updatedAt: now,
       updatedBy: actor.fullName,
     };
-    db.feeGrid.push(created);
+    if (classId) {
+      db.feeGrid.unshift(created);
+    } else {
+      db.feeGrid.push(created);
+    }
+    const scopeLabel = className ? `Classe ${className} (${cycle} · ${program})` : `${cycle} (${program})`;
     addAuditLog(
       db,
       actor,
       'Création formule tarifaire',
       'Tarifs',
       created.id,
-      `Nouvelle formule ${created.cycle} (${created.program}) : Total ${(created.registrationFee + created.annualTuition).toLocaleString('fr-FR')} FCFA.`
+      `Nouveau tarif ${scopeLabel} : Total ${(created.registrationFee + created.annualTuition).toLocaleString('fr-FR')} FCFA.`
     );
     await saveLocalDatabase(db);
     return { feeGridItem: created } as T;
@@ -912,11 +938,32 @@ export async function handleLocalApiRequest<T>(
     if (idx < 0) throw new Error('Grille tarifaire introuvable.');
     const existing = db.feeGrid[idx];
     const body = parseBody<Partial<FeeGridItem>>(options);
-    const nextCycle = body.cycle || existing.cycle;
-    const nextProgram = body.program || existing.program;
-    if (db.feeGrid.some((f, i) => i !== idx && f.cycle === nextCycle && f.program === nextProgram)) {
-      throw new Error(`Une formule existe déjà pour ${nextCycle} (${nextProgram}).`);
+
+    const nextClassId = body.classId !== undefined ? body.classId || null : existing.classId || null;
+    let nextClassName = existing.className;
+    let nextCycle = body.cycle || existing.cycle;
+    let nextProgram = body.program || existing.program;
+
+    if (nextClassId) {
+      const cls = db.classes.find((c) => c.id === nextClassId);
+      if (!cls) throw new Error('Classe sélectionnée introuvable.');
+      if (db.feeGrid.some((f, i) => i !== idx && f.classId === nextClassId)) {
+        throw new Error(`Un tarif spécifique existe déjà pour la classe ${cls.name}.`);
+      }
+      nextClassName = cls.name;
+      nextCycle = cls.cycle;
+      nextProgram = cls.program;
+    } else {
+      nextClassName = undefined;
+      if (
+        db.feeGrid.some(
+          (f, i) => i !== idx && !f.classId && f.cycle === nextCycle && f.program === nextProgram
+        )
+      ) {
+        throw new Error(`Un barème par défaut existe déjà pour ${nextCycle} (${nextProgram}).`);
+      }
     }
+
     const regFee =
       body.registrationFee !== undefined ? Number(body.registrationFee) : existing.registrationFee;
     const tuition =
@@ -936,6 +983,8 @@ export async function handleLocalApiRequest<T>(
     const now = new Date().toISOString();
     db.feeGrid[idx] = {
       ...existing,
+      classId: nextClassId,
+      className: nextClassName,
       cycle: nextCycle,
       program: nextProgram,
       registrationFee: Math.round(regFee),
@@ -944,13 +993,16 @@ export async function handleLocalApiRequest<T>(
       updatedAt: now,
       updatedBy: actor.fullName,
     };
+    const scopeLabel = nextClassName
+      ? `Classe ${nextClassName} (${nextCycle} · ${nextProgram})`
+      : `${nextCycle} (${nextProgram})`;
     addAuditLog(
       db,
       actor,
       'Modification grille tarifaire',
       'Tarifs',
       db.feeGrid[idx].id,
-      `${db.feeGrid[idx].cycle} (${db.feeGrid[idx].program}) : Inscription ${db.feeGrid[idx].registrationFee.toLocaleString('fr-FR')} FCFA, Scolarité ${db.feeGrid[idx].annualTuition.toLocaleString('fr-FR')} FCFA (${db.feeGrid[idx].installments.length} tranches).`
+      `${scopeLabel} : Inscription ${db.feeGrid[idx].registrationFee.toLocaleString('fr-FR')} FCFA, Scolarité ${db.feeGrid[idx].annualTuition.toLocaleString('fr-FR')} FCFA (${db.feeGrid[idx].installments.length} tranches).`
     );
     await saveLocalDatabase(db);
     return { feeGridItem: db.feeGrid[idx] } as T;
@@ -964,12 +1016,18 @@ export async function handleLocalApiRequest<T>(
       throw new Error('Au moins une formule tarifaire doit rester active.');
     }
     const target = db.feeGrid[idx];
-    const activeStudentsUsing = db.students.filter(
-      (s) => s.status !== 'archive' && s.cycle === target.cycle && s.program === target.program
-    );
+    const activeStudentsUsing = target.classId
+      ? db.students.filter((s) => s.status !== 'archive' && s.classId === target.classId)
+      : db.students.filter(
+          (s) =>
+            s.status !== 'archive' &&
+            s.cycle === target.cycle &&
+            s.program === target.program &&
+            (!s.classId || !db.feeGrid.some((f) => f.classId === s.classId))
+        );
     if (activeStudentsUsing.length > 0) {
       throw new Error(
-        `Suppression impossible : ${activeStudentsUsing.length} élève(s) actif(s) dépendent du tarif ${target.cycle} (${target.program}).`
+        `Suppression impossible : ${activeStudentsUsing.length} élève(s) actif(s) dépendent du tarif ${target.className ? `de la classe ${target.className}` : `${target.cycle} (${target.program})`}.`
       );
     }
     db.feeGrid.splice(idx, 1);
@@ -979,7 +1037,7 @@ export async function handleLocalApiRequest<T>(
       'Suppression formule tarifaire',
       'Tarifs',
       target.id,
-      `Formule supprimée : ${target.cycle} (${target.program}).`
+      `Formule supprimée : ${target.className ? `${target.className} (${target.cycle})` : `${target.cycle} (${target.program})`}.`
     );
     await saveLocalDatabase(db);
     return { deletedId: target.id } as T;
@@ -1321,7 +1379,9 @@ export async function handleLocalApiRequest<T>(
   // --- SECRETARIAT ---
   if (method === 'POST' && path === '/api/classes') {
     const actor = assertRole(db, session, ['secretariat', 'admin']);
-    const body = parseBody<Partial<SchoolClass>>(options);
+    const body = parseBody<
+      Partial<SchoolClass> & { registrationFee?: number; annualTuition?: number }
+    >(options);
     if (!body.name || !body.cycle || !body.program) {
       throw new Error('Nom, cycle et programme requis.');
     }
@@ -1335,16 +1395,40 @@ export async function handleLocalApiRequest<T>(
       headTeacher: (body.headTeacher || 'À désigner').trim(),
     };
     db.classes.push(cls);
+
+    const baseFee = resolveFeeGridItem(db, { cycle: cls.cycle, program: cls.program });
+    const regFee =
+      body.registrationFee !== undefined && Number(body.registrationFee) >= 0
+        ? Math.round(Number(body.registrationFee))
+        : baseFee?.registrationFee ?? 45000;
+    const annualTuition =
+      body.annualTuition !== undefined && Number(body.annualTuition) >= 0
+        ? Math.round(Number(body.annualTuition))
+        : baseFee?.annualTuition ?? 270000;
+    const classFee: FeeGridItem = {
+      id: `fee-${cls.id}`,
+      classId: cls.id,
+      className: cls.name,
+      cycle: cls.cycle,
+      program: cls.program,
+      registrationFee: regFee,
+      annualTuition,
+      installments: distributeFeeInstallments(regFee, annualTuition, baseFee?.installments),
+      updatedAt: new Date().toISOString(),
+      updatedBy: actor.fullName,
+    };
+    db.feeGrid.unshift(classFee);
+
     addAuditLog(
       db,
       actor,
       'Création classe',
       'Classe',
       cls.id,
-      `${cls.name} (${cls.cycle} · ${cls.program})`
+      `${cls.name} (${cls.cycle} · ${cls.program}) — Tarif classe : ${(regFee + annualTuition).toLocaleString('fr-FR')} FCFA`
     );
     await saveLocalDatabase(db);
-    return { schoolClass: cls } as T;
+    return { schoolClass: cls, feeGridItem: classFee } as T;
   }
 
   if (method === 'POST' && path === '/api/subjects') {

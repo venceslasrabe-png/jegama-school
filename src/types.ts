@@ -89,6 +89,8 @@ export interface FeeInstallment {
 
 export interface FeeGridItem {
   id: string;
+  classId?: string | null;
+  className?: string;
   cycle: SchoolCycle;
   program: SchoolProgram;
   registrationFee: number;
@@ -500,6 +502,7 @@ export interface SchoolDatabase {
     gradeWorkflowSeeded?: boolean;
     collectionRemindersSeeded?: boolean;
     reinscriptionsSeeded?: boolean;
+    classFeesSeeded?: boolean;
   };
 }
 

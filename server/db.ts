@@ -4,6 +4,7 @@ import type { SchoolDatabase } from '../src/types';
 import {
   createSeedDatabase,
   ensureArchiveSeedData,
+  ensureClassFeeGridData,
   ensureGradeWorkflowData,
   ensureRecouvrementData,
   ensureReinscriptionData,
@@ -26,6 +27,7 @@ export {
   createSeedDatabase,
   distributeFeeInstallments,
   ensureArchiveSeedData,
+  ensureClassFeeGridData,
   ensureGradeWorkflowData,
   ensureRecouvrementData,
   ensureReinscriptionData,
@@ -35,6 +37,7 @@ export {
   getFeeForReinscription,
   getTeacherCumulativeHours,
   recalculateClassBulletins,
+  resolveFeeGridItem,
   roundFcfaAmount,
   runAutomaticOverdueNotifications,
   sanitizeDbForClient,
@@ -64,6 +67,7 @@ export function loadDatabase(): SchoolDatabase {
     ensureGradeWorkflowData(parsed);
     ensureRecouvrementData(parsed);
     ensureReinscriptionData(parsed);
+    ensureClassFeeGridData(parsed);
     return parsed;
   } catch {
     const seed = createSeedDatabase();

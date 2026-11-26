@@ -1033,14 +1033,31 @@ const CYCLE_ORDER: SchoolCycle[] = [
   'Lycée Technique',
 ];
 
+export function resolveFeeGridItem(
+  db: Pick<SchoolDatabase, 'feeGrid'>,
+  target: { classId?: string | null; cycle: SchoolCycle; program: SchoolProgram }
+): FeeGridItem | undefined {
+  if (target.classId) {
+    const exactClass = db.feeGrid.find((f) => f.classId === target.classId);
+    if (exactClass) return exactClass;
+  }
+  return (
+    db.feeGrid.find(
+      (f) => !f.classId && f.cycle === target.cycle && f.program === target.program
+    ) ||
+    db.feeGrid.find((f) => f.cycle === target.cycle && f.program === target.program) ||
+    db.feeGrid.find((f) => !f.classId && f.cycle === target.cycle) ||
+    db.feeGrid.find((f) => f.cycle === target.cycle)
+  );
+}
+
 export function getFeeForReinscription(
   db: Pick<SchoolDatabase, 'feeGrid'>,
   cycle: SchoolCycle,
-  program: SchoolProgram
+  program: SchoolProgram,
+  classId?: string | null
 ): number {
-  const fee =
-    db.feeGrid.find((f) => f.cycle === cycle && f.program === program) ||
-    db.feeGrid.find((f) => f.cycle === cycle);
+  const fee = resolveFeeGridItem(db, { classId, cycle, program });
   return fee?.installments?.[0]?.amount ?? fee?.registrationFee ?? 120000;
 }
 
@@ -1214,7 +1231,7 @@ export function ensureReinscriptionData(db: SchoolDatabase): SchoolDatabase {
       const reinscritStudents = db.students.filter((s) => s.status === 'reinscrit');
       reinscritStudents.forEach((stu, idx) => {
         const parent = db.parents.find((p) => p.id === stu.parentId);
-        const feeAmount = getFeeForReinscription(db, stu.cycle, stu.program);
+        const feeAmount = getFeeForReinscription(db, stu.cycle, stu.program, stu.classId);
         db.reenrollments!.push({
           id: `reins-seed-${idx + 1}`,
           studentId: stu.id,
@@ -1239,6 +1256,58 @@ export function ensureReinscriptionData(db: SchoolDatabase): SchoolDatabase {
       });
     }
   }
+  return db;
+}
+
+export function ensureClassFeeGridData(db: SchoolDatabase): SchoolDatabase {
+  if (!Array.isArray(db.feeGrid)) db.feeGrid = [];
+  if (!Array.isArray(db.classes)) db.classes = [];
+  if (!db.counters) {
+    db.counters = { cardSeq: 8, receiptSeq: 6 };
+  }
+
+  // Sync cached className on existing class-level fees
+  db.feeGrid = db.feeGrid.map((fee) => {
+    if (!fee.classId) return fee;
+    const cls = db.classes.find((c) => c.id === fee.classId);
+    if (!cls) return fee;
+    return {
+      ...fee,
+      className: cls.name,
+      cycle: cls.cycle,
+      program: cls.program,
+    };
+  });
+
+  if (!db.counters.classFeesSeeded) {
+    db.counters.classFeesSeeded = true;
+    const classFeesToInsert: FeeGridItem[] = [];
+    for (const cls of db.classes) {
+      const alreadyHasClassFee = db.feeGrid.some((f) => f.classId === cls.id);
+      if (alreadyHasClassFee) continue;
+      const baseFee = resolveFeeGridItem(db, { cycle: cls.cycle, program: cls.program });
+      const regFee = baseFee?.registrationFee ?? 45000;
+      const annualTuition = baseFee?.annualTuition ?? 270000;
+      const installments =
+        baseFee?.installments && baseFee.installments.length > 0
+          ? baseFee.installments.map((inst) => ({ ...inst }))
+          : distributeFeeInstallments(regFee, annualTuition);
+      classFeesToInsert.push({
+        id: `fee-${cls.id}`,
+        classId: cls.id,
+        className: cls.name,
+        cycle: cls.cycle,
+        program: cls.program,
+        registrationFee: regFee,
+        annualTuition,
+        installments,
+      });
+    }
+    if (classFeesToInsert.length > 0) {
+      db.feeGrid = [...classFeesToInsert, ...db.feeGrid];
+    }
+  }
+
   return db;
 }
 
@@ -2159,9 +2228,11 @@ export function createSeedDatabase(): SchoolDatabase {
       gradeWorkflowSeeded: true,
       collectionRemindersSeeded: true,
       reinscriptionsSeeded: false,
+      classFeesSeeded: false,
     },
   };
 
+  ensureClassFeeGridData(seedDb);
   return ensureReinscriptionData(seedDb);
 }
 
@@ -2191,9 +2262,7 @@ export function addAuditLog(
 }
 
 export function computeStudentBalance(db: Pick<SchoolDatabase, 'feeGrid' | 'payments'>, student: Student) {
-  const fee = db.feeGrid.find(
-    (f) => f.cycle === student.cycle && f.program === student.program
-  );
+  const fee = resolveFeeGridItem(db, student);
   const expected = fee ? fee.registrationFee + fee.annualTuition : 250000;
   const paid = db.payments
     .filter((p) => p.studentId === student.id)
@@ -2217,9 +2286,7 @@ export function computeStudentRecoveryProfile(
   student: Student,
   asOfDateStr?: string
 ): StudentRecoveryProfile {
-  const fee = db.feeGrid.find(
-    (f) => f.cycle === student.cycle && f.program === student.program
-  );
+  const fee = resolveFeeGridItem(db, student);
   const expected = fee ? fee.registrationFee + fee.annualTuition : 250000;
   const paid = db.payments
     .filter((p) => p.studentId === student.id)

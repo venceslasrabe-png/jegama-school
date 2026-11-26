@@ -36,6 +36,7 @@ import {
   evaluateStudentAutoFollowUp,
   getDefaultCollectionAutomation,
   getFeeForReinscription,
+  resolveFeeGridItem,
   suggestNextClassAndCycle,
 } from '../shared/schoolEngine';
 import type {
@@ -157,6 +158,7 @@ export const ScolariteView: React.FC<{
   const [editingParent, setEditingParent] = useState<ParentTutor | null>(null);
   const [editingFee, setEditingFee] = useState<FeeGridItem | null>(null);
   const [feeModalMode, setFeeModalMode] = useState<'edit' | 'create'>('edit');
+  const [feeScopeFilter, setFeeScopeFilter] = useState<'all' | 'class' | 'cycle'>('all');
   const [feeProgramFilter, setFeeProgramFilter] = useState<'all' | SchoolProgram>('all');
   const [feeSearch, setFeeSearch] = useState('');
   const [confirmDeleteFeeId, setConfirmDeleteFeeId] = useState<string | null>(null);
@@ -329,9 +331,7 @@ export const ScolariteView: React.FC<{
   });
 
   const getStudentBalance = (student: Student) => {
-    const fee = state.feeGrid.find(
-      (f) => f.cycle === student.cycle && f.program === student.program
-    );
+    const fee = resolveFeeGridItem({ feeGrid: state.feeGrid }, student);
     const expected = fee ? fee.registrationFee + fee.annualTuition : 250000;
     const paid = state.payments
       .filter((p) => p.studentId === student.id)
@@ -691,7 +691,8 @@ export const ScolariteView: React.FC<{
     const feeAmount = getFeeForReinscription(
       { feeGrid: state.feeGrid },
       suggested.nextCycle,
-      suggested.nextProgram
+      suggested.nextProgram,
+      suggested.nextClassId
     );
     setReinscrireForm({
       decision: defaultDecision,
@@ -714,7 +715,8 @@ export const ScolariteView: React.FC<{
     const feeAmount = getFeeForReinscription(
       { feeGrid: state.feeGrid },
       suggested.nextCycle,
-      suggested.nextProgram
+      suggested.nextProgram,
+      suggested.nextClassId
     );
     setReinscrireForm((prev) => ({
       ...prev,
@@ -1018,21 +1020,70 @@ export const ScolariteView: React.FC<{
     }
   };
 
+  const getFeeDisplayName = (fee: FeeGridItem) => {
+    if (fee.classId) {
+      return (
+        fee.className ||
+        state.classes.find((c) => c.id === fee.classId)?.name ||
+        'Classe'
+      );
+    }
+    return `Barème ${fee.cycle}`;
+  };
+
+  const getActiveCountForFee = (fee: FeeGridItem) => {
+    if (fee.classId) {
+      return state.students.filter(
+        (s) => s.status !== 'archive' && s.classId === fee.classId
+      ).length;
+    }
+    return state.students.filter(
+      (s) =>
+        s.status !== 'archive' &&
+        s.cycle === fee.cycle &&
+        s.program === fee.program &&
+        (!s.classId || !state.feeGrid.some((gf) => gf.classId === s.classId))
+    ).length;
+  };
+
+  const orderedFeeGrid = useMemo(() => {
+    const classOrder = new Map(state.classes.map((c, idx) => [c.id, idx]));
+    return [...state.feeGrid].sort((a, b) => {
+      const aHasClass = Boolean(a.classId);
+      const bHasClass = Boolean(b.classId);
+      if (aHasClass !== bHasClass) return aHasClass ? -1 : 1;
+      if (aHasClass && bHasClass) {
+        const idxA = classOrder.get(a.classId!) ?? 999;
+        const idxB = classOrder.get(b.classId!) ?? 999;
+        if (idxA !== idxB) return idxA - idxB;
+      }
+      const cycDiff = CYCLES.indexOf(a.cycle) - CYCLES.indexOf(b.cycle);
+      if (cycDiff !== 0) return cycDiff;
+      return a.program.localeCompare(b.program);
+    });
+  }, [state.feeGrid, state.classes]);
+
   const filteredFeeGrid = useMemo(() => {
     const q = feeSearch.trim().toLowerCase();
-    return state.feeGrid.filter((fee) => {
+    return orderedFeeGrid.filter((fee) => {
+      if (feeScopeFilter === 'class' && !fee.classId) return false;
+      if (feeScopeFilter === 'cycle' && Boolean(fee.classId)) return false;
       if (feeProgramFilter !== 'all' && fee.program !== feeProgramFilter) return false;
       if (q) {
-        const hay = `${fee.cycle} ${fee.program}`.toLowerCase();
+        const clsName = getFeeDisplayName(fee);
+        const hay = `${clsName} ${fee.cycle} ${fee.program}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [state.feeGrid, feeProgramFilter, feeSearch]);
+  }, [orderedFeeGrid, state.classes, feeScopeFilter, feeProgramFilter, feeSearch]);
 
   const feeStats = useMemo(() => {
-    const count = state.feeGrid.length;
-    const totals = state.feeGrid.map((f) => f.registrationFee + f.annualTuition);
+    const classFees = state.feeGrid.filter((f) => Boolean(f.classId));
+    const cycleFallbacks = state.feeGrid.filter((f) => !f.classId);
+    const statSource = classFees.length > 0 ? classFees : state.feeGrid;
+    const count = statSource.length;
+    const totals = statSource.map((f) => f.registrationFee + f.annualTuition);
     const avg = count > 0 ? Math.round(totals.reduce((s, v) => s + v, 0) / count) : 0;
     const min = count > 0 ? Math.min(...totals) : 0;
     const max = count > 0 ? Math.max(...totals) : 0;
@@ -1040,18 +1091,21 @@ export const ScolariteView: React.FC<{
       .filter((f) => Boolean(f.updatedAt))
       .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
     return {
-      count,
+      count: state.feeGrid.length,
+      classFeeCount: classFees.length,
+      cycleFallbackCount: cycleFallbacks.length,
+      totalClasses: state.classes.length,
       avg,
       min,
       max,
       lastUpdatedAt: sortedDates[0]?.updatedAt || null,
       lastUpdatedBy: sortedDates[0]?.updatedBy || null,
     };
-  }, [state.feeGrid]);
+  }, [state.feeGrid, state.classes.length]);
 
   const bulkPreviewRows = useMemo(() => {
     const selectedSet = new Set(bulkFeeTargetIds);
-    return state.feeGrid
+    return orderedFeeGrid
       .filter((f) => selectedSet.has(f.id))
       .map((fee) => {
         const next = computeAdjustedFeeItem(fee, {
@@ -1073,7 +1127,7 @@ export const ScolariteView: React.FC<{
         };
       });
   }, [
-    state.feeGrid,
+    orderedFeeGrid,
     bulkFeeTargetIds,
     bulkAdjustType,
     bulkRegDelta,
@@ -1087,16 +1141,43 @@ export const ScolariteView: React.FC<{
     setFeeModalMode('edit');
     setEditingFee({
       ...fee,
+      className: fee.classId
+        ? fee.className || state.classes.find((c) => c.id === fee.classId)?.name
+        : undefined,
       installments: fee.installments.map((t) => ({ ...t })),
     });
   };
 
   const openCreateFeeModal = () => {
+    const uncoveredClass = state.classes.find(
+      (cls) => !state.feeGrid.some((f) => f.classId === cls.id)
+    );
+    if (uncoveredClass) {
+      const baseFee = resolveFeeGridItem(
+        { feeGrid: state.feeGrid },
+        { cycle: uncoveredClass.cycle, program: uncoveredClass.program }
+      );
+      const baseReg = baseFee?.registrationFee ?? 50000;
+      const baseTuition = baseFee?.annualTuition ?? 300000;
+      setFeeModalMode('create');
+      setEditingFee({
+        id: 'new',
+        classId: uncoveredClass.id,
+        className: uncoveredClass.name,
+        cycle: uncoveredClass.cycle,
+        program: uncoveredClass.program,
+        registrationFee: baseReg,
+        annualTuition: baseTuition,
+        installments: distributeFeeInstallments(baseReg, baseTuition, baseFee?.installments),
+      });
+      return;
+    }
+
     let defaultCycle: SchoolCycle = 'Maternelle';
     let defaultProgram: SchoolProgram = 'Français';
     for (const c of CYCLES) {
       for (const p of PROGRAMS) {
-        if (!state.feeGrid.some((f) => f.cycle === c && f.program === p)) {
+        if (!state.feeGrid.some((f) => !f.classId && f.cycle === c && f.program === p)) {
           defaultCycle = c;
           defaultProgram = p;
           break;
@@ -1108,6 +1189,7 @@ export const ScolariteView: React.FC<{
     setFeeModalMode('create');
     setEditingFee({
       id: 'new',
+      classId: null,
       cycle: defaultCycle,
       program: defaultProgram,
       registrationFee: baseReg,
@@ -1125,6 +1207,9 @@ export const ScolariteView: React.FC<{
     }
     setBusy(true);
     setFeedback(null);
+    const scopeLabel = editingFee.classId
+      ? `${getFeeDisplayName(editingFee)} (${editingFee.cycle})`
+      : `${editingFee.cycle} (${editingFee.program})`;
     try {
       if (feeModalMode === 'create') {
         await apiRequest(
@@ -1145,8 +1230,8 @@ export const ScolariteView: React.FC<{
         type: 'ok',
         text:
           feeModalMode === 'create'
-            ? `Formule tarifaire ${editingFee.cycle} (${editingFee.program}) ajoutée.`
-            : `Tarif ${editingFee.cycle} (${editingFee.program}) mis à jour avec son échéancier.`,
+            ? `Tarif ${scopeLabel} ajouté à la grille.`
+            : `Tarif ${scopeLabel} mis à jour avec son échéancier.`,
       });
     } catch (err) {
       setFeedback({
@@ -1178,9 +1263,12 @@ export const ScolariteView: React.FC<{
 
   const openBulkFeeModal = (mode: 'adjust' | 'direct' = 'adjust') => {
     setBulkFeeMode(mode);
-    setBulkFeeTargetIds(state.feeGrid.map((f) => f.id));
+    const classFees = orderedFeeGrid.filter((f) => Boolean(f.classId));
+    setBulkFeeTargetIds(
+      (classFees.length > 0 ? classFees : orderedFeeGrid).map((f) => f.id)
+    );
     const draft: Record<string, { registrationFee: number; annualTuition: number }> = {};
-    state.feeGrid.forEach((f) => {
+    orderedFeeGrid.forEach((f) => {
       draft[f.id] = { registrationFee: f.registrationFee, annualTuition: f.annualTuition };
     });
     setBulkDirectDraft(draft);
@@ -1222,11 +1310,11 @@ export const ScolariteView: React.FC<{
         setShowBulkFeeModal(false);
         setFeedback({
           type: 'ok',
-          text: `${res.updatedCount} formule(s) de la grille tarifaire mise(s) à jour en lot.`,
+          text: `${res.updatedCount} tarif(s) de la grille mis à jour en lot.`,
         });
       } else {
         if (bulkFeeTargetIds.length === 0) {
-          setFeedback({ type: 'err', text: 'Sélectionnez au moins une formule tarifaire.' });
+          setFeedback({ type: 'err', text: 'Sélectionnez au moins un tarif.' });
           setBusy(false);
           return;
         }
@@ -1251,7 +1339,7 @@ export const ScolariteView: React.FC<{
         setShowBulkFeeModal(false);
         setFeedback({
           type: 'ok',
-          text: `Révision globale appliquée sur ${res.updatedCount} formule(s) tarifaire(s).`,
+          text: `Révision globale appliquée sur ${res.updatedCount} tarif(s).`,
         });
       }
     } catch (err) {
@@ -1266,6 +1354,8 @@ export const ScolariteView: React.FC<{
 
   const handleExportFeeGridCsv = () => {
     const headers = [
+      'Portée',
+      'Classe',
       'Cycle',
       'Programme',
       'Frais inscription (FCFA)',
@@ -1280,14 +1370,14 @@ export const ScolariteView: React.FC<{
       'Élèves actifs',
       'Dernière modification',
     ];
-    const rows = state.feeGrid.map((fee) => {
-      const activeCount = state.students.filter(
-        (s) => s.status !== 'archive' && s.cycle === fee.cycle && s.program === fee.program
-      ).length;
+    const rows = orderedFeeGrid.map((fee) => {
+      const activeCount = getActiveCountForFee(fee);
       const t1 = fee.installments[0];
       const t2 = fee.installments[1];
       const t3 = fee.installments[2];
       return [
+        fee.classId ? 'Par classe' : 'Barème cycle',
+        fee.classId ? getFeeDisplayName(fee) : 'Par défaut (non affectés)',
         fee.cycle,
         fee.program,
         fee.registrationFee,
@@ -3747,12 +3837,12 @@ export const ScolariteView: React.FC<{
           {/* KPI Summary Strip */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
             <div className="bg-white border border-slate-200 rounded-xl p-4">
-              <div className="text-xs text-slate-500">Formules configurées</div>
+              <div className="text-xs text-slate-500">Classes tarifées</div>
               <div className="mt-1 font-mono text-xl font-bold tabular-nums text-slate-900">
-                {feeStats.count}
+                {feeStats.classFeeCount} / {feeStats.totalClasses}
               </div>
               <div className="mt-1 text-[11px] text-slate-500">
-                Cycles × Programmes actifs
+                {feeStats.cycleFallbackCount} barème(s) cycle de référence
               </div>
             </div>
             <div className="bg-white border border-slate-200 rounded-xl p-4">
@@ -3789,10 +3879,10 @@ export const ScolariteView: React.FC<{
               <div>
                 <h2 className="font-display text-base font-bold text-slate-900 flex items-center gap-2">
                   <CreditCard className="w-4 h-4 text-blue-900 shrink-0" />
-                  Grille tarifaire annuelle (FCFA)
+                  Grille tarifaire par classe (FCFA)
                 </h2>
                 <p className="text-xs text-slate-500 mt-0.5">
-                  Frais d’inscription, scolarité annuelle, échéancier des tranches et mise à jour globale.
+                  Les tarifs sont fixés par classe (inscription, scolarité annuelle, échéancier) avec barèmes cycle de référence pour les élèves en attente d’affectation.
                 </p>
               </div>
 
@@ -3837,30 +3927,54 @@ export const ScolariteView: React.FC<{
             </div>
 
             {/* Filter Toolbar */}
-            <div className="px-4 sm:px-6 py-3 border-b border-slate-100 bg-slate-50/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg self-start">
-                {(['all', ...PROGRAMS] as const).map((prog) => (
-                  <button
-                    key={prog}
-                    type="button"
-                    onClick={() => setFeeProgramFilter(prog)}
-                    className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
-                      feeProgramFilter === prog
-                        ? 'bg-white text-slate-900 shadow-sm'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    {prog === 'all' ? 'Tous programmes' : `Programme ${prog}`}
-                  </button>
-                ))}
+            <div className="px-4 sm:px-6 py-3 border-b border-slate-100 bg-slate-50/60 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg">
+                  {(
+                    [
+                      { id: 'all', label: 'Toutes' },
+                      { id: 'class', label: 'Par classe' },
+                      { id: 'cycle', label: 'Barèmes cycle' },
+                    ] as const
+                  ).map((scope) => (
+                    <button
+                      key={scope.id}
+                      type="button"
+                      onClick={() => setFeeScopeFilter(scope.id)}
+                      className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                        feeScopeFilter === scope.id
+                          ? 'bg-white text-slate-900 shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {scope.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg">
+                  {(['all', ...PROGRAMS] as const).map((prog) => (
+                    <button
+                      key={prog}
+                      type="button"
+                      onClick={() => setFeeProgramFilter(prog)}
+                      className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 ${
+                        feeProgramFilter === prog
+                          ? 'bg-white text-slate-900 shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      {prog === 'all' ? 'Tous programmes' : `Programme ${prog}`}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div className="relative w-full sm:w-64">
+              <div className="relative w-full lg:w-64">
                 <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   value={feeSearch}
                   onChange={(e) => setFeeSearch(e.target.value)}
-                  placeholder="Filtrer par cycle ou programme…"
+                  placeholder="Filtrer par classe, cycle ou programme…"
                   className="w-full pl-8 pr-3 py-1.5 text-xs bg-white border border-slate-200 rounded-lg"
                 />
               </div>
@@ -3872,22 +3986,29 @@ export const ScolariteView: React.FC<{
                 const total = fee.registrationFee + fee.annualTuition;
                 const instSum = fee.installments.reduce((s, t) => s + t.amount, 0);
                 const gap = total - instSum;
-                const activeCount = state.students.filter(
-                  (s) => s.status !== 'archive' && s.cycle === fee.cycle && s.program === fee.program
-                ).length;
+                const activeCount = getActiveCountForFee(fee);
+                const displayName = getFeeDisplayName(fee);
                 return (
                   <div key={fee.id} className="p-4 space-y-3">
                     <div className="flex items-start justify-between gap-2">
                       <div>
                         <div className="font-semibold text-sm text-slate-900">
-                          {fee.cycle} · {fee.program}
+                          {displayName}
                         </div>
-                        <div className="text-xs text-slate-500 mt-0.5 font-mono tabular-nums">
-                          {activeCount} élève(s) actif(s)
-                          {fee.updatedAt ? ` · MAJ ${formatDateFr(fee.updatedAt)}` : ''}
+                        <div className="text-xs text-slate-500 mt-0.5">
+                          {fee.classId
+                            ? `${fee.cycle} · Programme ${fee.program}`
+                            : `Barème par défaut · Programme ${fee.program}`}{' '}
+                          · <span className="font-mono tabular-nums">{activeCount} élève(s)</span>
+                          {fee.updatedAt ? (
+                            <span className="font-mono tabular-nums">
+                              {' '}
+                              · MAJ {formatDateFr(fee.updatedAt)}
+                            </span>
+                          ) : null}
                         </div>
                       </div>
-                      <div className="text-right font-mono font-bold text-sm tabular-nums text-blue-950">
+                      <div className="text-right font-mono font-bold text-sm tabular-nums text-blue-950 shrink-0">
                         {formatFcfa(total)}
                       </div>
                     </div>
@@ -3980,7 +4101,7 @@ export const ScolariteView: React.FC<{
               <table className="w-full text-sm min-w-[820px]">
                 <thead>
                   <tr className="border-b border-slate-200 bg-slate-50 text-xs text-slate-600 text-left">
-                    <th className="py-3 px-4 font-semibold">Cycle & Programme</th>
+                    <th className="py-3 px-4 font-semibold">Classe & Cycle</th>
                     <th className="py-3 px-4 font-semibold text-right">Inscription</th>
                     <th className="py-3 px-4 font-semibold text-right">Scolarité annuelle</th>
                     <th className="py-3 px-4 font-semibold text-right">Total annuel</th>
@@ -3993,20 +4114,18 @@ export const ScolariteView: React.FC<{
                     const total = fee.registrationFee + fee.annualTuition;
                     const instSum = fee.installments.reduce((s, t) => s + t.amount, 0);
                     const gap = total - instSum;
-                    const activeCount = state.students.filter(
-                      (s) =>
-                        s.status !== 'archive' &&
-                        s.cycle === fee.cycle &&
-                        s.program === fee.program
-                    ).length;
+                    const activeCount = getActiveCountForFee(fee);
+                    const displayName = getFeeDisplayName(fee);
 
                     return (
                       <tr key={fee.id} className="hover:bg-slate-50/90 align-top">
                         <td className="py-3.5 px-4">
-                          <div className="font-semibold text-slate-900">{fee.cycle}</div>
+                          <div className="font-semibold text-slate-900">{displayName}</div>
                           <div className="text-xs text-slate-500 mt-0.5">
-                            Programme {fee.program} ·{' '}
-                            <span className="font-mono tabular-nums">{activeCount} élève(s)</span>
+                            {fee.classId
+                              ? `${fee.cycle} · Programme ${fee.program}`
+                              : `Barème par défaut · Programme ${fee.program}`}{' '}
+                            · <span className="font-mono tabular-nums">{activeCount} élève(s)</span>
                           </div>
                           {fee.updatedAt && (
                             <div className="text-[11px] text-slate-400 font-mono tabular-nums mt-0.5">
@@ -4082,8 +4201,8 @@ export const ScolariteView: React.FC<{
                                     <button
                                       type="button"
                                       onClick={() => setConfirmDeleteFeeId(fee.id)}
-                                      title="Supprimer cette formule inutilisée"
-                                      aria-label="Supprimer cette formule"
+                                      title="Supprimer ce tarif inutilisé"
+                                      aria-label="Supprimer ce tarif"
                                       className="p-1.5 text-slate-500 hover:text-red-700 border border-slate-200 rounded hover:bg-red-50"
                                     >
                                       <Trash2 className="w-3.5 h-3.5" />
@@ -4102,7 +4221,7 @@ export const ScolariteView: React.FC<{
                   {filteredFeeGrid.length === 0 && (
                     <tr>
                       <td colSpan={6} className="py-8 px-4 text-center text-xs text-slate-500">
-                        Aucune formule tarifaire ne correspond à ce filtre.
+                        Aucun tarif ne correspond à ce filtre.
                       </td>
                     </tr>
                   )}
@@ -4245,7 +4364,17 @@ export const ScolariteView: React.FC<{
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Cycle</label>
                 <select
                   value={enrollForm.cycle}
-                  onChange={(e) => setEnrollForm({ ...enrollForm, cycle: e.target.value as SchoolCycle })}
+                  onChange={(e) => {
+                    const nextCycle = e.target.value as SchoolCycle;
+                    const firstCls = state.classes.find(
+                      (c) => c.cycle === nextCycle && c.program === enrollForm.program
+                    );
+                    setEnrollForm({
+                      ...enrollForm,
+                      cycle: nextCycle,
+                      classId: firstCls?.id || '',
+                    });
+                  }}
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
                 >
                   {CYCLES.map((c) => (
@@ -4257,7 +4386,17 @@ export const ScolariteView: React.FC<{
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Programme</label>
                 <select
                   value={enrollForm.program}
-                  onChange={(e) => setEnrollForm({ ...enrollForm, program: e.target.value as SchoolProgram })}
+                  onChange={(e) => {
+                    const nextProgram = e.target.value as SchoolProgram;
+                    const firstCls = state.classes.find(
+                      (c) => c.cycle === enrollForm.cycle && c.program === nextProgram
+                    );
+                    setEnrollForm({
+                      ...enrollForm,
+                      program: nextProgram,
+                      classId: firstCls?.id || '',
+                    });
+                  }}
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
                 >
                   {PROGRAMS.map((p) => (
@@ -4281,6 +4420,43 @@ export const ScolariteView: React.FC<{
                 </select>
               </div>
             </div>
+
+            {(() => {
+              const resolvedFee = resolveFeeGridItem(
+                { feeGrid: state.feeGrid },
+                {
+                  classId: enrollForm.classId || null,
+                  cycle: enrollForm.cycle,
+                  program: enrollForm.program,
+                }
+              );
+              if (!resolvedFee) return null;
+              const firstTranche =
+                resolvedFee.installments[0]?.amount ?? resolvedFee.registrationFee;
+              return (
+                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                  <div>
+                    <span className="font-semibold text-slate-900">
+                      {resolvedFee.classId
+                        ? `Tarif classe · ${getFeeDisplayName(resolvedFee)}`
+                        : `Barème cycle · ${resolvedFee.cycle} (${resolvedFee.program})`}
+                    </span>
+                    <div className="text-slate-600 mt-0.5 font-mono tabular-nums">
+                      Inscription {formatFcfa(resolvedFee.registrationFee)} · Scolarité{' '}
+                      {formatFcfa(resolvedFee.annualTuition)}
+                    </div>
+                  </div>
+                  <div className="sm:text-right font-mono tabular-nums">
+                    <div className="font-bold text-blue-950">
+                      Total : {formatFcfa(resolvedFee.registrationFee + resolvedFee.annualTuition)}
+                    </div>
+                    <div className="text-[11px] text-slate-500">
+                      1ère notification Caisse : {formatFcfa(firstTranche)}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             <div className="pt-3 border-t border-slate-200 space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -4638,7 +4814,8 @@ export const ScolariteView: React.FC<{
                       const nextFee = getFeeForReinscription(
                         { feeGrid: state.feeGrid },
                         nextCycle,
-                        reinscrireForm.nextProgram
+                        reinscrireForm.nextProgram,
+                        firstCls?.id || null
                       );
                       setReinscrireForm({
                         ...reinscrireForm,
@@ -4668,15 +4845,17 @@ export const ScolariteView: React.FC<{
                       const firstCls = state.classes.find(
                         (c) => c.cycle === reinscrireForm.nextCycle && c.program === nextProgram
                       );
+                      const nextClassId = firstCls?.id || '';
                       const nextFee = getFeeForReinscription(
                         { feeGrid: state.feeGrid },
                         reinscrireForm.nextCycle,
-                        nextProgram
+                        nextProgram,
+                        nextClassId || null
                       );
                       setReinscrireForm({
                         ...reinscrireForm,
                         nextProgram,
-                        nextClassId: firstCls?.id || reinscrireForm.nextClassId,
+                        nextClassId,
                         feeAmount: nextFee,
                       });
                     }}
@@ -4696,9 +4875,25 @@ export const ScolariteView: React.FC<{
                   </label>
                   <select
                     value={reinscrireForm.nextClassId}
-                    onChange={(e) =>
-                      setReinscrireForm({ ...reinscrireForm, nextClassId: e.target.value })
-                    }
+                    onChange={(e) => {
+                      const nextClassId = e.target.value;
+                      const chosenClass = state.classes.find((c) => c.id === nextClassId);
+                      const targetCycle = chosenClass?.cycle || reinscrireForm.nextCycle;
+                      const targetProgram = chosenClass?.program || reinscrireForm.nextProgram;
+                      const nextFee = getFeeForReinscription(
+                        { feeGrid: state.feeGrid },
+                        targetCycle,
+                        targetProgram,
+                        nextClassId || null
+                      );
+                      setReinscrireForm({
+                        ...reinscrireForm,
+                        nextClassId,
+                        nextCycle: targetCycle,
+                        nextProgram: targetProgram,
+                        feeAmount: nextFee,
+                      });
+                    }}
                     className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
                   >
                     <option value="">À affecter ultérieurement</option>
@@ -5349,8 +5544,10 @@ export const ScolariteView: React.FC<{
               <div>
                 <h3 className="font-display text-lg font-bold text-slate-900">
                   {feeModalMode === 'create'
-                    ? 'Nouvelle formule tarifaire'
-                    : `Mettre à jour · ${editingFee.cycle} (${editingFee.program})`}
+                    ? 'Nouveau tarif de scolarité'
+                    : editingFee.classId
+                      ? `Mettre à jour · ${getFeeDisplayName(editingFee)} (${editingFee.cycle})`
+                      : `Mettre à jour · Barème ${editingFee.cycle} (${editingFee.program})`}
                 </h3>
                 <p className="text-xs text-slate-500 mt-0.5">
                   Modifiez les frais d’inscription, la scolarité annuelle et l’échéancier des tranches.
@@ -5366,41 +5563,148 @@ export const ScolariteView: React.FC<{
             </div>
 
             {feeModalMode === 'create' && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Cycle</label>
-                  <select
-                    value={editingFee.cycle}
-                    onChange={(e) =>
-                      setEditingFee({ ...editingFee, cycle: e.target.value as SchoolCycle })
-                    }
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
-                  >
-                    {CYCLES.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
+              <div className="space-y-3 p-3.5 rounded-lg bg-slate-50 border border-slate-200">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs font-semibold text-slate-700">Portée du tarif</span>
+                  <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const cls =
+                          state.classes.find(
+                            (c) => !state.feeGrid.some((f) => f.classId === c.id)
+                          ) || state.classes[0];
+                        if (!cls) return;
+                        const baseFee = resolveFeeGridItem(
+                          { feeGrid: state.feeGrid },
+                          { cycle: cls.cycle, program: cls.program }
+                        );
+                        const reg = baseFee?.registrationFee ?? editingFee.registrationFee;
+                        const tui = baseFee?.annualTuition ?? editingFee.annualTuition;
+                        setEditingFee({
+                          ...editingFee,
+                          classId: cls.id,
+                          className: cls.name,
+                          cycle: cls.cycle,
+                          program: cls.program,
+                          registrationFee: reg,
+                          annualTuition: tui,
+                          installments: distributeFeeInstallments(reg, tui, baseFee?.installments),
+                        });
+                      }}
+                      className={`px-3 py-1 text-xs font-semibold rounded-md whitespace-nowrap ${
+                        editingFee.classId
+                          ? 'bg-white text-slate-900 shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Tarif fixé pour une classe
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditingFee({
+                          ...editingFee,
+                          classId: null,
+                          className: undefined,
+                        })
+                      }
+                      className={`px-3 py-1 text-xs font-semibold rounded-md whitespace-nowrap ${
+                        !editingFee.classId
+                          ? 'bg-white text-slate-900 shadow-sm'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Barème par défaut (Cycle × Programme)
+                    </button>
+                  </div>
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">
-                    Programme
-                  </label>
-                  <select
-                    value={editingFee.program}
-                    onChange={(e) =>
-                      setEditingFee({ ...editingFee, program: e.target.value as SchoolProgram })
-                    }
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
-                  >
-                    {PROGRAMS.map((p) => (
-                      <option key={p} value={p}>
-                        Programme {p}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+
+                {editingFee.classId ? (
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">
+                      Classe concernée
+                    </label>
+                    <select
+                      value={editingFee.classId}
+                      onChange={(e) => {
+                        const cls = state.classes.find((c) => c.id === e.target.value);
+                        if (!cls) return;
+                        const baseFee = resolveFeeGridItem(
+                          { feeGrid: state.feeGrid },
+                          { cycle: cls.cycle, program: cls.program }
+                        );
+                        const reg = baseFee?.registrationFee ?? editingFee.registrationFee;
+                        const tui = baseFee?.annualTuition ?? editingFee.annualTuition;
+                        setEditingFee({
+                          ...editingFee,
+                          classId: cls.id,
+                          className: cls.name,
+                          cycle: cls.cycle,
+                          program: cls.program,
+                          registrationFee: reg,
+                          annualTuition: tui,
+                          installments: distributeFeeInstallments(reg, tui, baseFee?.installments),
+                        });
+                      }}
+                      className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+                    >
+                      {state.classes.map((cls) => (
+                        <option key={cls.id} value={cls.id}>
+                          {cls.name} — {cls.cycle} · Programme {cls.program}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">Cycle</label>
+                      <select
+                        value={editingFee.cycle}
+                        onChange={(e) =>
+                          setEditingFee({ ...editingFee, cycle: e.target.value as SchoolCycle })
+                        }
+                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+                      >
+                        {CYCLES.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-slate-700 mb-1">
+                        Programme
+                      </label>
+                      <select
+                        value={editingFee.program}
+                        onChange={(e) =>
+                          setEditingFee({ ...editingFee, program: e.target.value as SchoolProgram })
+                        }
+                        className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+                      >
+                        {PROGRAMS.map((p) => (
+                          <option key={p} value={p}>
+                            Programme {p}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {feeModalMode === 'edit' && editingFee.classId && (
+              <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                <span className="font-semibold text-slate-900">
+                  Classe : {getFeeDisplayName(editingFee)}
+                </span>
+                <span className="text-slate-600">
+                  {editingFee.cycle} · Programme {editingFee.program}
+                </span>
               </div>
             )}
 
@@ -5791,14 +6095,14 @@ export const ScolariteView: React.FC<{
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-left">
                           <th className="py-2 px-3 w-8" />
-                          <th className="py-2 px-3 font-semibold">Cycle & Programme</th>
+                          <th className="py-2 px-3 font-semibold">Classe / Formule</th>
                           <th className="py-2 px-3 font-semibold text-right">Total actuel</th>
                           <th className="py-2 px-3 font-semibold text-right">Nouveau total</th>
                           <th className="py-2 px-3 font-semibold text-right">Écart</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {state.feeGrid.map((fee) => {
+                        {orderedFeeGrid.map((fee) => {
                           const checked = bulkFeeTargetIds.includes(fee.id);
                           const preview = bulkPreviewRows.find((r) => r.before.id === fee.id);
                           const oldTotal = fee.registrationFee + fee.annualTuition;
@@ -5818,7 +6122,19 @@ export const ScolariteView: React.FC<{
                                 />
                               </td>
                               <td className="py-2 px-3 font-medium text-slate-900">
-                                {fee.cycle} · {fee.program}
+                                {fee.classId ? (
+                                  <>
+                                    <span>{getFeeDisplayName(fee)}</span>
+                                    <span className="text-slate-500 font-normal">
+                                      {' '}
+                                      · {fee.cycle} · {fee.program}
+                                    </span>
+                                  </>
+                                ) : (
+                                  <span>
+                                    Barème {fee.cycle} · {fee.program}
+                                  </span>
+                                )}
                               </td>
                               <td className="py-2 px-3 text-right font-mono tabular-nums text-slate-600">
                                 {formatFcfa(oldTotal)}
@@ -5870,14 +6186,14 @@ export const ScolariteView: React.FC<{
                   <table className="w-full text-xs min-w-[600px]">
                     <thead>
                       <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 text-left">
-                        <th className="py-2.5 px-3 font-semibold">Formule</th>
+                        <th className="py-2.5 px-3 font-semibold">Classe / Formule</th>
                         <th className="py-2.5 px-3 font-semibold text-right">Inscription (FCFA)</th>
                         <th className="py-2.5 px-3 font-semibold text-right">Scolarité annuelle (FCFA)</th>
                         <th className="py-2.5 px-3 font-semibold text-right">Total annuel</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {state.feeGrid.map((fee) => {
+                      {orderedFeeGrid.map((fee) => {
                         const row = bulkDirectDraft[fee.id] || {
                           registrationFee: fee.registrationFee,
                           annualTuition: fee.annualTuition,
@@ -5885,7 +6201,19 @@ export const ScolariteView: React.FC<{
                         return (
                           <tr key={`direct-${fee.id}`} className="hover:bg-slate-50">
                             <td className="py-2 px-3 font-medium text-slate-900">
-                              {fee.cycle} · {fee.program}
+                              {fee.classId ? (
+                                <>
+                                  <span>{getFeeDisplayName(fee)}</span>
+                                  <span className="text-slate-500 font-normal">
+                                    {' '}
+                                    · {fee.cycle} · {fee.program}
+                                  </span>
+                                </>
+                              ) : (
+                                <span>
+                                  Barème {fee.cycle} · {fee.program}
+                                </span>
+                              )}
                             </td>
                             <td className="py-2 px-3 text-right">
                               <input
