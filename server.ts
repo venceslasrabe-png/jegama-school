@@ -1602,6 +1602,83 @@ async function startServer() {
     res.status(201).json({ subject });
   });
 
+  app.put('/api/subjects/:id', requireRole(['secretariat', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const subject = db.subjects.find((s) => s.id === req.params.id);
+    if (!subject) {
+      res.status(404).json({ error: 'Matière introuvable.' });
+      return;
+    }
+    const body = req.body as Partial<Subject>;
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    const coeff = Number(body.coefficient);
+    if (!name || !body.cycle || !body.program || !Number.isFinite(coeff) || coeff < 1 || coeff > 20) {
+      res.status(400).json({ error: 'Intitulé, cycle, programme et coefficient (1 à 20) valides requis.' });
+      return;
+    }
+    const prevCycle = subject.cycle;
+    const prevProgram = subject.program;
+    const codeRaw = typeof body.code === 'string' && body.code.trim() ? body.code.trim() : name.slice(0, 3);
+    subject.code = codeRaw.toUpperCase();
+    subject.name = name;
+    subject.cycle = body.cycle;
+    subject.program = body.program;
+    subject.coefficient = coeff;
+    subject.teacherName = (typeof body.teacherName === 'string' && body.teacherName.trim() ? body.teacherName : 'À désigner').trim();
+
+    for (const period of db.periods) {
+      if (period.status !== 'ouvert') continue;
+      for (const cls of db.classes) {
+        if (
+          (cls.cycle === prevCycle && cls.program === prevProgram) ||
+          (cls.cycle === subject.cycle && cls.program === subject.program)
+        ) {
+          recalculateClassBulletins(db, cls.id, period.id);
+        }
+      }
+    }
+
+    addAuditLog(
+      db,
+      actor,
+      'Modification matière',
+      'Matière',
+      subject.code,
+      `${subject.name} (Coeff ${subject.coefficient}) · ${subject.cycle} (${subject.program})`
+    );
+    saveDatabase(db);
+    res.json({ subject });
+  });
+
+  app.delete('/api/subjects/:id', requireRole(['secretariat', 'admin']), (req, res) => {
+    const db = loadDatabase();
+    const actor = getActor(req, db)!;
+    const idx = db.subjects.findIndex((s) => s.id === req.params.id);
+    if (idx === -1) {
+      res.status(404).json({ error: 'Matière introuvable.' });
+      return;
+    }
+    const subject = db.subjects[idx];
+    if (db.grades.some((g) => g.subjectId === subject.id)) {
+      res.status(400).json({
+        error: 'Suppression impossible : des notes sont déjà enregistrées pour cette matière.',
+      });
+      return;
+    }
+    db.subjects.splice(idx, 1);
+    addAuditLog(
+      db,
+      actor,
+      'Suppression matière',
+      'Matière',
+      subject.code,
+      `${subject.name} (${subject.cycle} · ${subject.program}) supprimée.`
+    );
+    saveDatabase(db);
+    res.json({ ok: true });
+  });
+
   app.post('/api/periods/:id/toggle-lock', requireRole(['secretariat', 'admin']), (req, res) => {
     const db = loadDatabase();
     const actor = getActor(req, db)!;
