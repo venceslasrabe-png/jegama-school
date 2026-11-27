@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from 'react';
-import { BookOpen, CalendarDays, FileText, Printer } from 'lucide-react';
+import { AlertTriangle, BookOpen, CalendarDays, FileText, Lock, Printer } from 'lucide-react';
 import type { AppState, SessionUser } from '../api';
+import { computeStudentRecoveryProfile } from '../shared/schoolEngine';
 import type { Bulletin, ReenrollmentRecord } from '../types';
-import { formatDateFr, formatTimeFr } from '../utils/format';
+import { formatDateFr, formatFcfa, formatTimeFr } from '../utils/format';
 import { BulletinModal, ReinscriptionCertificateModal, StudentAvatar } from './PrintableDocs';
 
 export const ParentView: React.FC<{
@@ -94,7 +95,19 @@ export const ParentView: React.FC<{
     );
   }, [state.bulletins, student]);
 
-  const activePeriodBulletin = studentBulletins.find((b) => b.periodId === selectedPeriodId);
+  const recoveryProfile = useMemo(() => {
+    if (!student) return null;
+    return computeStudentRecoveryProfile(
+      { feeGrid: state.feeGrid, payments: state.payments },
+      student
+    );
+  }, [state.feeGrid, state.payments, student]);
+
+  const owesTuition = Boolean(recoveryProfile && recoveryProfile.remaining > 0);
+
+  const activePeriodBulletin = owesTuition
+    ? undefined
+    : studentBulletins.find((b) => b.periodId === selectedPeriodId);
 
   if (!student) {
     return (
@@ -103,6 +116,97 @@ export const ParentView: React.FC<{
       </div>
     );
   }
+
+  const renderTuitionBlockedCard = (sectionLabel: 'notes et moyennes' | 'bulletins scolaires') => (
+    <div className="bg-white border border-amber-200 rounded-xl p-5 sm:p-6 space-y-5">
+      <div className="flex items-start gap-3.5">
+        <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 shrink-0">
+          <Lock className="w-5 h-5" />
+        </div>
+        <div className="space-y-1 min-w-0">
+          <h2 className="font-display text-base sm:text-lg font-bold text-slate-900">
+            Consultation des {sectionLabel} bloquée — Scolarité impayée
+          </h2>
+          <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+            L’accès aux {sectionLabel} de{' '}
+            <strong className="text-slate-900">
+              {student.firstName} {student.lastName}
+            </strong>{' '}
+            est suspendu tant que le solde de scolarité n’est pas intégralement réglé.
+          </p>
+        </div>
+      </div>
+
+      {recoveryProfile && (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-px bg-slate-200 border border-slate-200 rounded-xl overflow-hidden">
+            <div className="p-3.5 sm:p-4 bg-slate-50">
+              <div className="text-xs text-slate-500">Scolarité annuelle</div>
+              <div className="mt-1 font-mono text-base font-bold text-slate-900 tabular-nums">
+                {formatFcfa(recoveryProfile.expected)}
+              </div>
+            </div>
+            <div className="p-3.5 sm:p-4 bg-slate-50">
+              <div className="text-xs text-slate-500">Déjà réglé</div>
+              <div className="mt-1 font-mono text-base font-bold text-emerald-700 tabular-nums">
+                {formatFcfa(recoveryProfile.paid)}
+              </div>
+            </div>
+            <div className="p-3.5 sm:p-4 bg-amber-50/70">
+              <div className="text-xs text-amber-900 font-medium">Reste à payer</div>
+              <div className="mt-1 font-mono text-base font-bold text-red-700 tabular-nums">
+                {formatFcfa(recoveryProfile.remaining)}
+              </div>
+              {recoveryProfile.overdueFcfa > 0 && (
+                <div className="mt-0.5 text-[11px] font-mono font-semibold text-red-700 tabular-nums">
+                  Dont {formatFcfa(recoveryProfile.overdueFcfa)} échu en retard
+                </div>
+              )}
+            </div>
+          </div>
+
+          {recoveryProfile.installmentBreakdown.some((i) => !i.settled) && (
+            <div className="space-y-2">
+              <div className="text-xs font-semibold text-slate-700">
+                Tranches restant à solder
+              </div>
+              <div className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden">
+                {recoveryProfile.installmentBreakdown
+                  .filter((i) => !i.settled)
+                  .map((inst, idx) => (
+                    <div
+                      key={`${inst.label}-${idx}`}
+                      className="px-3.5 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs bg-white"
+                    >
+                      <div>
+                        <span className="font-semibold text-slate-900">{inst.label}</span>
+                        <span className="text-slate-500 ml-2 font-mono tabular-nums">
+                          Échéance {formatDateFr(inst.dueDate)}
+                        </span>
+                        {inst.isOverdue && (
+                          <span className="ml-2 font-semibold text-red-700">
+                            · En retard ({inst.daysOverdue} j)
+                          </span>
+                        )}
+                      </div>
+                      <span className="font-mono font-bold text-slate-900 tabular-nums">
+                        {formatFcfa(inst.remainingForInstallment)}
+                      </span>
+                    </div>
+                  ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      <div className="text-xs text-slate-600 pt-1 border-t border-slate-100">
+        Veuillez vous rapprocher de la Caisse ou du service Scolarité de{' '}
+        <span className="font-medium text-slate-800">{state.settings.schoolName}</span> pour
+        régulariser ce solde. L’accès sera rétabli dès l’enregistrement du paiement.
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6">
@@ -165,7 +269,10 @@ export const ParentView: React.FC<{
               </label>
               <select
                 value={student.id}
-                onChange={(e) => setSelectedStudentId(e.target.value)}
+                onChange={(e) => {
+                  setSelectedStudentId(e.target.value);
+                  setBulletinModal(null);
+                }}
                 className="w-full sm:w-auto px-3.5 py-2 text-sm font-medium border border-slate-300 rounded-lg bg-white"
               >
                 {availableStudents.map((child) => (
@@ -178,6 +285,21 @@ export const ParentView: React.FC<{
           )}
         </div>
       </div>
+
+      {/* Tuition Balance Lock Notice */}
+      {owesTuition && recoveryProfile && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-amber-950">
+          <div className="flex items-start sm:items-center gap-2 font-medium">
+            <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5 sm:mt-0" />
+            <span>
+              Scolarité non soldée — La consultation des notes et des bulletins est bloquée jusqu’au règlement complet.
+            </span>
+          </div>
+          <div className="font-mono font-bold text-red-700 tabular-nums shrink-0">
+            Solde dû : {formatFcfa(recoveryProfile.remaining)}
+          </div>
+        </div>
+      )}
 
       {/* Navigation Tabs */}
       <div className="flex items-center gap-1 p-1 bg-slate-200/70 rounded-lg w-full sm:w-fit max-w-full overflow-x-auto">
@@ -202,7 +324,11 @@ export const ParentView: React.FC<{
               : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <BookOpen className="w-3.5 h-3.5" />
+          {owesTuition ? (
+            <Lock className="w-3.5 h-3.5 text-amber-700" />
+          ) : (
+            <BookOpen className="w-3.5 h-3.5" />
+          )}
           Notes & Moyennes
         </button>
         <button
@@ -214,8 +340,12 @@ export const ParentView: React.FC<{
               : 'text-slate-600 hover:text-slate-900'
           }`}
         >
-          <FileText className="w-3.5 h-3.5" />
-          Bulletins validés ({studentBulletins.length})
+          {owesTuition ? (
+            <Lock className="w-3.5 h-3.5 text-amber-700" />
+          ) : (
+            <FileText className="w-3.5 h-3.5" />
+          )}
+          {owesTuition ? 'Bulletins (bloqué)' : `Bulletins validés (${studentBulletins.length})`}
         </button>
       </div>
 
@@ -339,6 +469,9 @@ export const ParentView: React.FC<{
 
       {/* NOTES */}
       {activeTab === 'notes' && (
+        owesTuition ? (
+          renderTuitionBlockedCard('notes et moyennes')
+        ) : (
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white border border-slate-200 rounded-xl p-4">
             <div className="flex items-center gap-3">
@@ -446,10 +579,14 @@ export const ParentView: React.FC<{
             </div>
           </div>
         </div>
+        )
       )}
 
       {/* BULLETINS */}
       {activeTab === 'bulletins' && (
+        owesTuition ? (
+          renderTuitionBlockedCard('bulletins scolaires')
+        ) : (
         <div className="bg-white border border-slate-200 rounded-xl divide-y divide-slate-100">
           {studentBulletins.length === 0 ? (
             <div className="p-8 text-center text-sm text-slate-500">
@@ -488,9 +625,10 @@ export const ParentView: React.FC<{
             })
           )}
         </div>
+        )
       )}
 
-      {bulletinModal && (
+      {bulletinModal && !owesTuition && (
         <BulletinModal
           bulletin={bulletinModal}
           student={student}

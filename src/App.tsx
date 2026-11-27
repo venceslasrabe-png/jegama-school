@@ -183,12 +183,14 @@ export default function App() {
   const menuItems: Array<{
     id: MenuKey;
     label: string;
+    shortLabel: string;
     icon: (active: boolean) => React.ReactNode;
     badge?: number;
   }> = [
     {
       id: 'dashboard',
       label: 'Tableau de bord',
+      shortLabel: 'Tableau de bord',
       icon: (active) => (
         <LayoutGrid className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
       ),
@@ -196,6 +198,7 @@ export default function App() {
     {
       id: 'eleves',
       label: 'Élèves & Inscriptions',
+      shortLabel: 'Élèves',
       icon: (active) => (
         <Users className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
       ),
@@ -203,6 +206,7 @@ export default function App() {
     {
       id: 'reinscriptions',
       label: 'Réinscriptions',
+      shortLabel: 'Réinscriptions',
       icon: (active) => (
         <RefreshCw className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
       ),
@@ -215,6 +219,7 @@ export default function App() {
     {
       id: 'classes',
       label: 'Classes & Matières',
+      shortLabel: 'Classes',
       icon: (active) => (
         <BookOpen className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
       ),
@@ -222,6 +227,7 @@ export default function App() {
     {
       id: 'surveillance',
       label: 'Pointage & Guérite',
+      shortLabel: 'Guérite',
       icon: (active) => (
         <CheckSquare className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
       ),
@@ -234,6 +240,12 @@ export default function App() {
           : session.role === 'enseignant'
             ? 'Saisie des notes'
             : 'Notes & Moyennes',
+      shortLabel:
+        session.role === 'scolarite'
+          ? 'Validation notes'
+          : session.role === 'enseignant'
+            ? 'Saisie notes'
+            : 'Notes',
       icon: (active) => (
         <FileText className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
       ),
@@ -247,6 +259,7 @@ export default function App() {
     {
       id: 'bulletins',
       label: 'Bulletins & Livraison',
+      shortLabel: 'Bulletins',
       icon: (active) => (
         <Award className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
       ),
@@ -254,6 +267,7 @@ export default function App() {
     {
       id: 'caisse',
       label: 'Caisse & Reçus',
+      shortLabel: 'Caisse',
       icon: (active) => (
         <CreditCard className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
       ),
@@ -266,6 +280,7 @@ export default function App() {
     {
       id: 'recouvrement',
       label: 'Recouvrement',
+      shortLabel: 'Recouvrement',
       icon: (active) => (
         <BellRing className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
       ),
@@ -281,6 +296,7 @@ export default function App() {
     {
       id: 'enseignants',
       label: 'Corps enseignants',
+      shortLabel: 'Enseignants',
       icon: (active) => (
         <Briefcase className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
       ),
@@ -288,6 +304,7 @@ export default function App() {
     {
       id: 'parent',
       label: 'Vue parentale',
+      shortLabel: 'Parents',
       icon: (active) => (
         <Users className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
       ),
@@ -295,6 +312,7 @@ export default function App() {
     {
       id: 'archives',
       label: 'Archives',
+      shortLabel: 'Archives',
       icon: (active) => (
         <Archive className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
       ),
@@ -303,6 +321,7 @@ export default function App() {
     {
       id: 'admin',
       label: 'Administration & Audit',
+      shortLabel: 'Administration',
       icon: (active) => (
         <Settings className={`w-4 h-4 shrink-0 ${active ? 'text-[#0B1933]' : 'text-[#E5A923]'}`} />
       ),
@@ -447,13 +466,13 @@ export default function App() {
       <header className="no-print bg-[#0B1933] text-white border-b border-white/10 sticky top-0 z-40 shrink-0">
         <div className="max-w-[1440px] mx-auto px-3 sm:px-6">
           {/* Top row: Brand, Profile & Logout */}
-          <div className="h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4 lg:border-b lg:border-white/10">
+          <div className="h-14 sm:h-16 flex items-center justify-between gap-2 sm:gap-4 md:border-b md:border-white/10">
             <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
               <button
                 type="button"
                 onClick={() => setMobileMenuOpen(true)}
                 aria-label="Ouvrir le menu"
-                className="lg:hidden p-2 -ml-1.5 text-slate-200 hover:text-white rounded-lg hover:bg-white/10 shrink-0"
+                className="md:hidden p-2 -ml-1.5 text-slate-200 hover:text-white rounded-lg hover:bg-white/10 shrink-0"
               >
                 <Menu className="w-5 h-5" />
               </button>
@@ -511,10 +530,10 @@ export default function App() {
             </div>
           </div>
 
-          {/* Horizontal Rubriques Strip (Desktop) */}
+          {/* Horizontal Rubriques Strip (Desktop / PC) */}
           <nav
             aria-label="Rubriques principales"
-            className="hidden lg:flex items-center gap-1.5 py-2.5 overflow-x-auto"
+            className="hidden md:flex flex-wrap items-center gap-1 py-2"
           >
             {visibleMenuItems.map((item) => {
               const active = activeMenu === item.id;
@@ -522,18 +541,19 @@ export default function App() {
                 <button
                   key={item.id}
                   type="button"
+                  title={item.label}
                   onClick={() => setActiveMenu(item.id)}
-                  className={`inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
+                  className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
                     active
                       ? 'bg-[#E5A923] text-[#0B1933] font-semibold'
                       : 'text-slate-200 hover:bg-white/10 hover:text-white'
                   }`}
                 >
                   {item.icon(active)}
-                  <span>{item.label}</span>
+                  <span>{item.shortLabel}</span>
                   {item.badge !== undefined && item.badge > 0 && (
                     <span
-                      className={`font-mono text-[11px] font-bold px-1.5 py-0.5 rounded ${
+                      className={`font-mono text-[11px] font-bold px-1.5 py-0.5 rounded tabular-nums ${
                         active ? 'bg-[#0B1933] text-[#E5A923]' : 'bg-[#E5A923]/20 text-[#E5A923]'
                       }`}
                     >
@@ -549,7 +569,7 @@ export default function App() {
 
       {/* Mobile Drawer */}
       {mobileMenuOpen && (
-        <div className="no-print fixed inset-0 z-50 lg:hidden flex">
+        <div className="no-print fixed inset-0 z-50 md:hidden flex">
           <div
             className="fixed inset-0 bg-slate-900/60"
             onClick={() => setMobileMenuOpen(false)}

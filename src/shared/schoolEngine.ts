@@ -3079,6 +3079,11 @@ export function sanitizeDbForClient(db: SchoolDatabase, actor: ActorContext | nu
   if (actor.role === 'parent') {
     const myStudents = db.students.filter((s) => s.parentId === actor.id);
     const myStudentIds = new Set(myStudents.map((s) => s.id));
+    const mySettledStudentIds = new Set(
+      myStudents
+        .filter((s) => computeStudentBalance(db, s).remaining <= 0)
+        .map((s) => s.id)
+    );
     const myClassIds = new Set(myStudents.map((s) => s.classId).filter(Boolean));
     return {
       settings: db.settings,
@@ -3102,11 +3107,11 @@ export function sanitizeDbForClient(db: SchoolDatabase, actor: ActorContext | nu
       attendanceLogs: db.attendanceLogs.filter((a) => myStudentIds.has(a.studentId)),
       grades: db.grades.filter(
         (g) =>
-          myStudentIds.has(g.studentId) &&
+          mySettledStudentIds.has(g.studentId) &&
           (!g.validationStatus || g.validationStatus === 'valide')
       ),
       bulletins: db.bulletins.filter(
-        (b) => myStudentIds.has(b.studentId) && b.deliveryStatus !== 'a_editer'
+        (b) => mySettledStudentIds.has(b.studentId) && b.deliveryStatus !== 'a_editer'
       ),
       auditLogs: [],
       archivedYears: [],

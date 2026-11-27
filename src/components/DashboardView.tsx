@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import {
   Archive,
   ArrowUpRight,
   BookOpen,
   Briefcase,
+  ChevronLeft,
+  ChevronRight,
   ClipboardCheck,
   CreditCard,
   GraduationCap,
@@ -37,6 +39,13 @@ export const DashboardView: React.FC<{
   onNavigate: (section: NavSection) => void;
 }> = ({ state, role, onNavigate }) => {
   const { summary } = state;
+  const rubriquesRailRef = useRef<HTMLDivElement | null>(null);
+
+  const scrollRubriques = (dir: 'left' | 'right') => {
+    const el = rubriquesRailRef.current;
+    if (!el) return;
+    el.scrollBy({ left: dir === 'left' ? -320 : 320, behavior: 'smooth' });
+  };
 
   const canAccess = (section: NavSection): { allowed: boolean; modeLabel: string; required: string } => {
     if (role === 'direction') {
@@ -296,12 +305,36 @@ export const DashboardView: React.FC<{
         </div>
       </div>
 
-      {/* Clickable Section Cards (4-column horizontal row) */}
+      {/* Clickable Section Cards (Single horizontal rail on PC) */}
       <div>
-        <h2 className="font-display text-base font-semibold text-slate-900 mb-3 sm:mb-4">
-          Rubriques de gestion
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="flex items-center justify-between gap-3 mb-3 sm:mb-4">
+          <h2 className="font-display text-base font-semibold text-slate-900">
+            Rubriques de gestion
+          </h2>
+          <div className="hidden md:flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => scrollRubriques('left')}
+              aria-label="Faire défiler les rubriques vers la gauche"
+              className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => scrollRubriques('right')}
+              aria-label="Faire défiler les rubriques vers la droite"
+              className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:text-slate-900 hover:bg-slate-50 transition-colors"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        <div
+          ref={rubriquesRailRef}
+          className="grid grid-cols-1 sm:grid-cols-2 md:flex md:flex-row md:flex-nowrap md:gap-3.5 md:overflow-x-auto md:pb-2 md:snap-x gap-3.5"
+        >
           {modules.map((mod) => {
             const access = canAccess(mod.id);
             return (
@@ -310,14 +343,14 @@ export const DashboardView: React.FC<{
                 type="button"
                 disabled={!access.allowed}
                 onClick={() => access.allowed && onNavigate(mod.id)}
-                className={`text-left p-4 sm:p-5 rounded-xl border transition-colors flex flex-col justify-between gap-4 min-w-0 ${
+                className={`text-left p-4 rounded-xl border transition-colors flex flex-col justify-between gap-3 min-w-0 md:w-[258px] lg:w-[268px] md:shrink-0 md:snap-start ${
                   access.allowed
                     ? 'bg-white border-slate-200 hover:border-blue-900 cursor-pointer'
                     : 'bg-slate-100/80 border-slate-200 text-slate-400 cursor-not-allowed opacity-75'
                 }`}
               >
-                <div className="space-y-3">
-                  <div className="flex items-start justify-between gap-3">
+                <div className="space-y-2.5">
+                  <div className="flex items-start justify-between gap-2.5">
                     <div
                       className={`p-2 rounded-lg border shrink-0 ${
                         access.allowed
@@ -335,36 +368,36 @@ export const DashboardView: React.FC<{
                   </div>
 
                   <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3
-                        className={`font-display text-sm font-bold ${
-                          access.allowed ? 'text-slate-900' : 'text-slate-500'
-                        }`}
-                      >
-                        {mod.title}
-                      </h3>
-                      {mod.badgeCount !== undefined && mod.badgeCount > 0 && (
-                        <span className="font-mono text-[11px] font-bold text-amber-800 bg-amber-100 px-1.5 py-0.5 rounded">
-                          {mod.badgeCount} en attente
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">{mod.subtitle}</p>
+                    <h3
+                      className={`font-display text-sm font-bold leading-snug ${
+                        access.allowed ? 'text-slate-900' : 'text-slate-500'
+                      }`}
+                    >
+                      {mod.title}
+                    </h3>
+                    {mod.badgeCount !== undefined && mod.badgeCount > 0 && (
+                      <div className="font-mono text-[11px] font-semibold text-amber-700 tabular-nums mt-0.5">
+                        {mod.badgeCount} en attente
+                      </div>
+                    )}
+                    <p className="text-xs text-slate-500 mt-1 leading-relaxed line-clamp-2">
+                      {mod.subtitle}
+                    </p>
                   </div>
                 </div>
 
-                <div className="pt-3 border-t border-slate-100 space-y-1 text-xs">
-                  <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5">
-                    <span className="text-slate-400">{mod.metricLabel}</span>
+                <div className="pt-2.5 border-t border-slate-100 space-y-1 text-xs">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-slate-400 truncate">{mod.metricLabel}</span>
                     <span
-                      className={`font-mono font-semibold tabular-nums ${
+                      className={`font-mono font-semibold tabular-nums truncate ${
                         access.allowed ? 'text-slate-900' : 'text-slate-500'
                       }`}
                     >
                       {mod.metricValue}
                     </span>
                   </div>
-                  <div className="font-medium">
+                  <div className="font-medium truncate">
                     {access.allowed ? (
                       <span className="text-blue-900">{access.modeLabel}</span>
                     ) : (
